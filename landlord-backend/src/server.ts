@@ -1,0 +1,79 @@
+import express, { Express, Request, Response } from 'express';
+import cors from 'cors';
+import { config } from './config/index.js';
+import { errorHandler, notFound } from './middleware/error.js';
+
+// Import routes
+import authRoutes from './routes/auth.routes.js';
+import propertyRoutes from './routes/property.routes.js';
+import unitRoutes from './routes/unit.routes.js';
+import applicationRoutes from './routes/application.routes.js';
+import leaseRoutes from './routes/lease.routes.js';
+import tenantRoutes from './routes/tenant.routes.js';
+import qrcodeRoutes from './routes/qrcode.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+import analyticsRoutes from './routes/analytics.routes.js';
+
+const app: Express = express();
+
+// Middleware
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || config.corsOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS origin not allowed: ${origin}`));
+  },
+  credentials: true,
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Request logging
+app.use((req: Request, _res: Response, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
+// Health check
+app.get('/health', (_req: Request, res: Response) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/properties', propertyRoutes);
+app.use('/api/units', unitRoutes);
+app.use('/api/applications', applicationRoutes);
+app.use('/api/leases', leaseRoutes);
+app.use('/api/tenants', tenantRoutes);
+app.use('/api/qrcodes', qrcodeRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/analytics', analyticsRoutes);
+
+// Root route
+app.get('/', (_req: Request, res: Response) => {
+  res.json({
+    message: 'VacancyRadar API',
+    version: '1.0.0',
+    endpoints: {
+      auth: '/api/auth',
+      properties: '/api/properties',
+      units: '/api/units',
+      applications: '/api/applications',
+      leases: '/api/leases',
+      tenants: '/api/tenants',
+      qrcodes: '/api/qrcodes',
+      notifications: '/api/notifications',
+      analytics: '/api/analytics',
+    },
+  });
+});
+
+// Error handling
+app.use(notFound);
+app.use(errorHandler);
+
+export default app;
