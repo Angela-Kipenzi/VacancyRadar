@@ -1,0 +1,46 @@
+{
+  "name": "vacancyradar-tenant",
+  "version": "1.0.0",
+  "main": "expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-navigation/bottom-tabs": "^6.5.11",
+    "@react-navigation/native": "^6.1.9",
+    "@react-navigation/native-stack": "^6.11.0",
+    "@react-navigation/stack": "^6.3.20",
+    "axios": "^1.6.2",
+    "date-fns": "^3.0.0",
+    "expo": "^55.0.6",
+    "expo-camera": "~55.0.10",
+    "expo-constants": "~55.0.9",
+    "expo-dev-client": "~55.0.18",
+    "expo-image-picker": "~55.0.13",
+    "expo-linking": "~55.0.8",
+    "expo-location": "~55.1.4",
+    "expo-notifications": "~55.0.13",
+    "expo-status-bar": "~55.0.4",
+    "expo-system-ui": "~55.0.10",
+    "react": "19.2.0",
+    "react-native": "0.83.2",
+    "react-native-gesture-handler": "~2.30.0",
+    "react-native-paper": "^5.12.3",
+    "react-native-reanimated": "4.2.1",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-screens": "~4.23.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@types/react": "~19.2.10",
+    "babel-preset-expo": "^55.0.11",
+    "expo-module-scripts": "^55.0.2",
+    "typescript": "^5.3.0"
+  },
+  "private": true
+}

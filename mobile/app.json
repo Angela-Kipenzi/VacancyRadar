@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "VacancyRadar Tenant",
+    "slug": "vacancyradar-tenant",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#4F46E5"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vacancyradar.tenant",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow access to scan QR codes and capture property condition photos.",
+        "NSLocationWhenInUseUsageDescription": "Allow access to verify you are at the property during check-in/out.",
+        "NSPhotoLibraryAddUsageDescription": "Allow saving check-in/out photos to your library if needed.",
+        "NSPhotoLibraryUsageDescription": "Allow photo access for uploading unit condition images."
+      }
+    },
+    "android": {
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "POST_NOTIFICATIONS"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#4F46E5"
+      },
+      "package": "com.vacancyradar.tenant"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "scheme": "vacancyradar",
+    "plugins": [
+      "expo-camera"
+    ]
+  }
+}
