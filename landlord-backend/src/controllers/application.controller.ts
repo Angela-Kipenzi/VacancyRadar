@@ -11,6 +11,15 @@ export const applicationValidation = [
   body('applicantPhone').trim().notEmpty().withMessage('Phone number is required'),
 ];
 
+export const tenantApplicationValidation = [
+  body('unitId').isUUID().withMessage('Valid unit ID is required'),
+  body('applicant').isObject().withMessage('Applicant details are required'),
+  body('applicant.firstName').trim().notEmpty().withMessage('First name is required'),
+  body('applicant.lastName').trim().notEmpty().withMessage('Last name is required'),
+  body('applicant.email').isEmail().withMessage('Valid email is required'),
+  body('applicant.phone').trim().notEmpty().withMessage('Phone number is required'),
+];
+
 // Get all applications for landlord
 export const getApplications = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -149,6 +158,7 @@ export const createApplication = async (req: AuthRequest, res: Response): Promis
       hasPets,
       petDetails,
       documents,
+      tenantId,
     } = req.body;
 
     // Verify unit exists and is available
@@ -164,13 +174,14 @@ export const createApplication = async (req: AuthRequest, res: Response): Promis
 
     const result = await pool.query(
       `INSERT INTO applications (
-        unit_id, applicant_name, applicant_email, applicant_phone,
+        unit_id, tenant_id, applicant_name, applicant_email, applicant_phone,
         current_address, employment_status, employer_name, annual_income,
         move_in_date, num_occupants, has_pets, pet_details, status, documents
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *`,
       [
         unitId,
+        tenantId || null,
         applicantName,
         applicantEmail,
         applicantPhone,
@@ -225,13 +236,175 @@ export const createApplication = async (req: AuthRequest, res: Response): Promis
   }
 };
 
+// Tenant: Get own applications
+export const getMyApplications = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT a.*, u.unit_number, u.bedrooms, u.bathrooms, u.rent_amount,
+        p.id as property_id, p.name as property_name, p.address as property_address, p.city as property_city
+       FROM applications a
+       JOIN units u ON a.unit_id = u.id
+       JOIN properties p ON u.property_id = p.id
+       WHERE a.tenant_id = $1
+       ORDER BY a.submitted_at DESC`,
+      [req.userId]
+    );
+
+    const mapStatus = (status: string) => (status === 'under_review' ? 'pending' : status);
+
+    const applications = result.rows.map((row: any) => ({
+      id: row.id,
+      propertyId: row.property_id,
+      propertyName: row.property_name,
+      propertyAddress: `${row.property_address}, ${row.property_city}`,
+      unitNumber: row.unit_number,
+      monthlyRent: parseFloat(row.rent_amount),
+      bedrooms: row.bedrooms,
+      bathrooms: parseFloat(row.bathrooms),
+      applicant: {
+        firstName: row.applicant_name?.split(' ')[0] || '',
+        lastName: row.applicant_name?.split(' ').slice(1).join(' ') || '',
+        email: row.applicant_email,
+        phone: row.applicant_phone,
+        currentAddress: row.current_address || undefined,
+      },
+      message: row.notes || undefined,
+      status: mapStatus(row.status),
+      appliedOn: row.submitted_at ? String(row.submitted_at).slice(0, 10) : '',
+    }));
+
+    res.json(applications);
+  } catch (error) {
+    console.error('Get tenant applications error:', error);
+    res.status(500).json({ error: 'Failed to fetch applications' });
+  }
+};
+
+export const getMyApplication = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT a.*, u.unit_number, u.bedrooms, u.bathrooms, u.rent_amount,
+        p.id as property_id, p.name as property_name, p.address as property_address, p.city as property_city
+       FROM applications a
+       JOIN units u ON a.unit_id = u.id
+       JOIN properties p ON u.property_id = p.id
+       WHERE a.id = $1 AND a.tenant_id = $2`,
+      [id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Application not found' });
+      return;
+    }
+
+    const row = result.rows[0];
+    const mapStatus = (status: string) => (status === 'under_review' ? 'pending' : status);
+
+    res.json({
+      id: row.id,
+      propertyId: row.property_id,
+      propertyName: row.property_name,
+      propertyAddress: `${row.property_address}, ${row.property_city}`,
+      unitNumber: row.unit_number,
+      monthlyRent: parseFloat(row.rent_amount),
+      bedrooms: row.bedrooms,
+      bathrooms: parseFloat(row.bathrooms),
+      applicant: {
+        firstName: row.applicant_name?.split(' ')[0] || '',
+        lastName: row.applicant_name?.split(' ').slice(1).join(' ') || '',
+        email: row.applicant_email,
+        phone: row.applicant_phone,
+        currentAddress: row.current_address || undefined,
+      },
+      message: row.notes || undefined,
+      status: mapStatus(row.status),
+      appliedOn: row.submitted_at ? String(row.submitted_at).slice(0, 10) : '',
+    });
+  } catch (error) {
+    console.error('Get tenant application error:', error);
+    res.status(500).json({ error: 'Failed to fetch application' });
+  }
+};
+
+export const createTenantApplication = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { unitId, applicant, message } = req.body;
+    const applicantName = `${applicant.firstName} ${applicant.lastName}`.trim();
+
+    const unitCheck = await pool.query(
+      'SELECT id FROM units WHERE id = $1',
+      [unitId]
+    );
+
+    if (unitCheck.rows.length === 0) {
+      res.status(404).json({ error: 'Unit not found' });
+      return;
+    }
+
+    const result = await pool.query(
+      `INSERT INTO applications (
+        unit_id, tenant_id, applicant_name, applicant_email, applicant_phone,
+        current_address, status, notes, documents
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *`,
+      [
+        unitId,
+        req.userId,
+        applicantName,
+        applicant.email,
+        applicant.phone,
+        applicant.currentAddress || null,
+        'pending',
+        message || null,
+        JSON.stringify([]),
+      ]
+    );
+
+    const row = result.rows[0];
+    res.status(201).json({
+      application: {
+        id: row.id,
+        status: row.status,
+        submittedAt: row.submitted_at,
+      },
+    });
+  } catch (error) {
+    console.error('Create tenant application error:', error);
+    res.status(500).json({ error: 'Failed to submit application' });
+  }
+};
+
+export const withdrawMyApplication = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `UPDATE applications
+       SET status = 'withdrawn'
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING id, status`,
+      [id, req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Application not found' });
+      return;
+    }
+
+    res.json({ message: 'Application withdrawn', application: result.rows[0] });
+  } catch (error) {
+    console.error('Withdraw application error:', error);
+    res.status(500).json({ error: 'Failed to withdraw application' });
+  }
+};
+
 // Update application status
 export const updateApplicationStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
 
-    if (!['pending', 'under_review', 'approved', 'rejected'].includes(status)) {
+    if (!['pending', 'under_review', 'approved', 'rejected', 'withdrawn'].includes(status)) {
       res.status(400).json({ error: 'Invalid status' });
       return;
     }

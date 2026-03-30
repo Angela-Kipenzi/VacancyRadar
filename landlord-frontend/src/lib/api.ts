@@ -1,7 +1,7 @@
 const API_BASE_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:5000';
 const TOKEN_STORAGE_KEY = 'vacancyradar_token';
 
-type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export class ApiError extends Error {
   status: number;
@@ -54,4 +54,3 @@ export async function apiRequest<T>(
 
   return data as T;
 }
-

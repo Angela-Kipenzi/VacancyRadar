@@ -5,12 +5,13 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { Card } from '../../components/common/Card';
 import { useSearch } from '../../contexts/SearchContext';
-import { mockProperties } from '../../data/mockProperties';
+import { useListings } from '../../contexts/ListingsContext';
 import { formatCurrency, matchesFilters } from '../../utils/search';
 import { PropertyListing } from '../../types';
 
@@ -38,11 +39,18 @@ const distanceScore = (property: PropertyListing) => {
 
 export const PropertyListScreen = ({ navigation }: any) => {
   const { filters, savedPropertyIds, toggleSavedProperty, recordViewedProperty } = useSearch();
+  const { listings, loading } = useListings();
   const [sortBy, setSortBy] = useState<SortOption>('relevant');
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+
+  const selectedSort = useMemo(
+    () => sortOptions.find((option) => option.value === sortBy) ?? sortOptions[0],
+    [sortBy]
+  );
 
   const filtered = useMemo(
-    () => mockProperties.filter((property) => matchesFilters(property, filters)),
-    [filters]
+    () => listings.filter((property) => matchesFilters(property, filters)),
+    [filters, listings]
   );
 
   const sorted = useMemo(() => {
@@ -83,19 +91,47 @@ export const PropertyListScreen = ({ navigation }: any) => {
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sortRow}>
-        {sortOptions.map((option) => (
-          <TouchableOpacity
-            key={option.value}
-            style={[styles.sortChip, sortBy === option.value && styles.sortChipActive]}
-            onPress={() => setSortBy(option.value)}
-          >
-            <Text style={[styles.sortText, sortBy === option.value && styles.sortTextActive]}>
-              {option.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <View style={styles.sortRow}>
+        <Text style={styles.sortLabel}>Sort by</Text>
+        <TouchableOpacity style={styles.sortDropdown} onPress={() => setSortMenuOpen(true)}>
+          <Text style={styles.sortDropdownText}>{selectedSort.label}</Text>
+          <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={sortMenuOpen}
+        onRequestClose={() => setSortMenuOpen(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.modalBackdrop}
+          onPress={() => setSortMenuOpen(false)}
+        >
+          <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
+            {sortOptions.map((option) => {
+              const isActive = sortBy === option.value;
+              return (
+                <TouchableOpacity
+                  key={option.value}
+                  style={[styles.modalItem, isActive && styles.modalItemActive]}
+                  onPress={() => {
+                    setSortBy(option.value);
+                    setSortMenuOpen(false);
+                  }}
+                >
+                  <Text style={[styles.modalItemText, isActive && styles.modalItemTextActive]}>
+                    {option.label}
+                  </Text>
+                  {isActive && <Ionicons name="checkmark" size={16} color={colors.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       <ScrollView contentContainerStyle={styles.list}>
         {sorted.map((property) => {
@@ -143,6 +179,11 @@ export const PropertyListScreen = ({ navigation }: any) => {
             </Card>
           );
         })}
+        {!loading && sorted.length === 0 && (
+          <Card style={styles.emptyCard} padding={16}>
+            <Text style={styles.emptyText}>No listings match your filters yet.</Text>
+          </Card>
+        )}
       </ScrollView>
     </View>
   );
@@ -185,31 +226,70 @@ const styles = StyleSheet.create({
   sortRow: {
     paddingHorizontal: 16,
     marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  sortChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: colors.white,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginRight: 8,
-  },
-  sortChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  sortText: {
+  sortLabel: {
     fontSize: 12,
     color: colors.textSecondary,
+    fontWeight: '600',
   },
-  sortTextActive: {
-    color: colors.white,
+  sortDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.white,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  sortDropdownText: {
+    fontSize: 12,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    paddingVertical: 8,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  modalItemActive: {
+    backgroundColor: colors.primary + '12',
+  },
+  modalItemText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  modalItemTextActive: {
+    color: colors.text,
     fontWeight: '600',
   },
   list: {
     padding: 16,
     paddingBottom: 24,
+  },
+  emptyCard: {
+    marginTop: 8,
+  },
+  emptyText: {
+    color: colors.textSecondary,
+    fontSize: 13,
   },
   card: {
     marginBottom: 12,

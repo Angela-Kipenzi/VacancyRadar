@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import { StarRating } from '../../components/reviews/StarRating';
 import { useReviews } from '../../contexts/ReviewsContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTenancy } from '../../contexts/TenancyContext';
-import { mockProperties } from '../../data/mockProperties';
+import { useListings } from '../../contexts/ListingsContext';
 import { ReviewCategoryRatings, ReviewPhoto } from '../../types';
 
 const prosSuggestions = ['Responsive landlord', 'Great location', 'Quiet building', 'Clean common areas'];
@@ -35,10 +35,19 @@ export const ReviewFormScreen = ({ navigation, route }: any) => {
   const { submitReview } = useReviews();
   const { user } = useAuth();
   const { checkOut } = useTenancy();
-  const property = useMemo(
-    () => mockProperties.find((item) => item.id === propertyId),
-    [propertyId]
-  );
+  const { getListingById, fetchListingById } = useListings();
+  const [property, setProperty] = useState(() => getListingById(propertyId));
+
+  useEffect(() => {
+    const existing = getListingById(propertyId);
+    if (existing) {
+      setProperty(existing);
+      return;
+    }
+    fetchListingById(propertyId)
+      .then((item) => setProperty(item ?? undefined))
+      .catch(() => undefined);
+  }, [propertyId, getListingById, fetchListingById]);
 
   const [ratings, setRatings] = useState<ReviewCategoryRatings>({
     overall: 0,

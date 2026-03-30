@@ -8,7 +8,7 @@ import {
   registerValidation,
   loginValidation,
 } from '../controllers/auth.controller.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 import { validate } from '../middleware/validator.js';
 
 const router = Router();
@@ -19,7 +19,7 @@ router.post('/login', validate(loginValidation), login);
 
 // Protected routes
 router.get('/me', authenticate, getCurrentUser);
-router.put('/profile', authenticate, updateProfile);
-router.put('/password', authenticate, changePassword);
+router.put('/profile', authenticate, requireRole('landlord'), updateProfile);
+router.put('/password', authenticate, requireRole('landlord'), changePassword);
 
 export default router;

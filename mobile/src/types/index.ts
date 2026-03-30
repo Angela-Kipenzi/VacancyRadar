@@ -168,6 +168,7 @@ export type Amenity =
 
 export interface PropertyListing {
   id: string;
+  propertyId?: string;
   title: string;
   price: number;
   currency: string;

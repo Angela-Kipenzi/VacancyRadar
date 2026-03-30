@@ -6,6 +6,7 @@ import { PaperProvider } from 'react-native-paper';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { SearchProvider } from './src/contexts/SearchContext';
+import { ListingsProvider } from './src/contexts/ListingsContext';
 import { TenancyProvider } from './src/contexts/TenancyContext';
 import { ApplicationsProvider } from './src/contexts/ApplicationsContext';
 import { ReviewsProvider } from './src/contexts/ReviewsContext';
@@ -20,16 +21,18 @@ export default function App() {
         <PaperProvider theme={theme}>
           <AuthProvider>
             <SearchProvider>
-              <TenancyProvider>
-                <ApplicationsProvider>
-                  <ReviewsProvider>
-                    <PaymentsProvider>
-                      <StatusBar style="light" />
-                      <AppNavigator />
-                    </PaymentsProvider>
-                  </ReviewsProvider>
-                </ApplicationsProvider>
-              </TenancyProvider>
+              <ListingsProvider>
+                <TenancyProvider>
+                  <ApplicationsProvider>
+                    <ReviewsProvider>
+                      <PaymentsProvider>
+                        <StatusBar style="light" />
+                        <AppNavigator />
+                      </PaymentsProvider>
+                    </ReviewsProvider>
+                  </ApplicationsProvider>
+                </TenancyProvider>
+              </ListingsProvider>
             </SearchProvider>
           </AuthProvider>
         </PaperProvider>

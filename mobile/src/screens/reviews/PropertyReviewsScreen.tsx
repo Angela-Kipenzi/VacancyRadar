@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
@@ -14,10 +14,14 @@ const ratingFilters: RatingFilter[] = ['all', '5', '4', '3', '2', '1'];
 
 export const PropertyReviewsScreen = ({ navigation, route }: any) => {
   const { propertyId } = route.params;
-  const { getPropertyReviews, getAverageRatings, flagReview } = useReviews();
+  const { getPropertyReviews, getAverageRatings, flagReview, fetchPropertyReviews } = useReviews();
   const { checkOut } = useTenancy();
   const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [sortMode, setSortMode] = useState<SortMode>('recent');
+
+  useEffect(() => {
+    fetchPropertyReviews(propertyId).catch(() => undefined);
+  }, [propertyId, fetchPropertyReviews]);
 
   const reviews = useMemo(() => getPropertyReviews(propertyId), [getPropertyReviews, propertyId]);
   const averages = useMemo(() => getAverageRatings(propertyId), [getAverageRatings, propertyId]);

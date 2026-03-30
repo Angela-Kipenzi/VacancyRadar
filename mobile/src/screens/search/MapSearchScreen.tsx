@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/common/Card';
 import { colors } from '../../theme/colors';
 import { useSearch } from '../../contexts/SearchContext';
-import { mockProperties } from '../../data/mockProperties';
+import { useListings } from '../../contexts/ListingsContext';
 import { formatCurrency, matchesFilters } from '../../utils/search';
 import { PropertyListing } from '../../types';
 
@@ -84,6 +84,7 @@ export const MapSearchScreen = ({ navigation }: any) => {
     saveSearch,
     recordViewedProperty,
   } = useSearch();
+  const { listings, loading, refreshListings } = useListings();
   const [mapType, setMapType] = useState<MapType>('street');
   const [zoomLevel, setZoomLevel] = useState(2);
   const [selectedProperty, setSelectedProperty] = useState<PropertyListing | null>(null);
@@ -102,8 +103,8 @@ export const MapSearchScreen = ({ navigation }: any) => {
   }, []);
 
   const filteredProperties = useMemo(
-    () => mockProperties.filter((property) => matchesFilters(property, filters)),
-    [filters]
+    () => listings.filter((property) => matchesFilters(property, filters)),
+    [filters, listings]
   );
 
   const clusters = useMemo(
@@ -165,6 +166,9 @@ export const MapSearchScreen = ({ navigation }: any) => {
           onPress={() => navigation.navigate('PropertyList')}
         >
           <Ionicons name="list" size={18} color={colors.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.refreshButton} onPress={refreshListings}>
+          <Ionicons name={loading ? 'reload-circle' : 'refresh'} size={18} color={colors.primary} />
         </TouchableOpacity>
       </View>
       <View style={styles.legendRow}>
@@ -228,6 +232,12 @@ export const MapSearchScreen = ({ navigation }: any) => {
             );
           })}
 
+          {!loading && clusters.length === 0 && (
+            <View style={styles.emptyOverlay}>
+              <Text style={styles.emptyText}>No listings to display.</Text>
+            </View>
+          )}
+
           <View style={styles.mapControls}>
             <View style={styles.mapTypeToggle}>
               {MAP_TYPES.map((type) => (
@@ -283,7 +293,7 @@ export const MapSearchScreen = ({ navigation }: any) => {
 
       {(selectedProperty || selectedCluster) && (
         <Card style={styles.previewCard} padding={16}>
-          {selectedProperty && (
+      {selectedProperty && (
             <>
               <View style={styles.previewHeader}>
                 <View>
@@ -471,10 +481,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  refreshButton: {
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   mapContainer: {
     flex: 1,
     paddingHorizontal: 16,
     paddingBottom: 12,
+  },
+  emptyOverlay: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    top: '45%',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  emptyText: {
+    color: colors.textSecondary,
+    fontSize: 12,
   },
   legendRow: {
     flexDirection: 'row',

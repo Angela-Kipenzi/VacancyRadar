@@ -1,40 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import api from '../config/api';
 import { Review, ReviewCategoryRatings } from '../types';
-import { mockProperties } from '../data/mockProperties';
-
-const STORAGE_KEY = 'tenant_reviews';
-
-const sampleReviews: Review[] = [
-  {
-    id: 'review-1001',
-    propertyId: mockProperties[0]?.id ?? 'prop-1001',
-    propertyName: mockProperties[0]?.title ?? 'Maple Court Studio',
-    propertyAddress: `${mockProperties[0]?.address ?? '214 Maple Court'}, ${
-      mockProperties[0]?.city ?? 'Brookside'
-    }`,
-    ratings: {
-      overall: 4,
-      landlordResponsiveness: 5,
-      maintenanceQuality: 4,
-      buildingCleanliness: 4,
-      noiseLevel: 3,
-      safetySecurity: 4,
-      valueForMoney: 4,
-    },
-    pros: ['Responsive landlord', 'Clean hallways'],
-    cons: ['Street noise on weekends'],
-    details: 'Overall a solid experience with quick maintenance fixes.',
-    photos: [],
-    anonymous: false,
-    authorId: 'user-unknown',
-    authorName: 'John Doe',
-    status: 'published',
-    verified: true,
-    createdAt: '2026-03-12',
-    flagged: false,
-  },
-];
 
 interface ReviewsContextValue {
   reviews: Review[];
@@ -44,20 +10,12 @@ interface ReviewsContextValue {
   flagReview: (id: string) => void;
   getReviewById: (id: string) => Review | undefined;
   getPropertyReviews: (propertyId: string) => Review[];
+  fetchPropertyReviews: (propertyId: string) => Promise<void>;
   getAverageRatings: (propertyId: string) => ReviewCategoryRatings | null;
   canEditReview: (review: Review) => boolean;
 }
 
 const ReviewsContext = createContext<ReviewsContextValue | undefined>(undefined);
-
-const safeParse = <T,>(value: string | null, fallback: T): T => {
-  if (!value) return fallback;
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return fallback;
-  }
-};
 
 const withinDays = (date: string, days: number) => {
   const created = new Date(date).getTime();
@@ -66,44 +24,112 @@ const withinDays = (date: string, days: number) => {
 };
 
 export const ReviewsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [reviews, setReviews] = useState<Review[]>(sampleReviews);
+  const [reviews, setReviews] = useState<Review[]>([]);
+
+  const mergeReviews = (incoming: Review[]) => {
+    setReviews((prev) => {
+      const next = [...prev];
+      incoming.forEach((item) => {
+        const index = next.findIndex((review) => review.id === item.id);
+        if (index >= 0) {
+          next[index] = { ...next[index], ...item };
+        } else {
+          next.push(item);
+        }
+      });
+      return [...next];
+    });
+  };
+
+  const loadMyReviews = async () => {
+    try {
+      const response = await api.get('/reviews/me');
+      mergeReviews(response.data || []);
+    } catch (error) {
+      console.error('Error loading reviews:', error);
+    }
+  };
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((value) => {
-        const stored = safeParse<Review[]>(value, sampleReviews);
-        setReviews(stored);
-      })
-      .catch(() => undefined);
+    loadMyReviews().catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(reviews)).catch(() => undefined);
-  }, [reviews]);
-
   const submitReview = (review: Review) => {
-    setReviews((prev) => [review, ...prev]);
+    void (async () => {
+      try {
+        const response = await api.post('/reviews', {
+          propertyId: review.propertyId,
+          ratings: review.ratings,
+          pros: review.pros,
+          cons: review.cons,
+          details: review.details,
+          photos: review.photos,
+          anonymous: review.anonymous,
+        });
+        if (response.data?.review) {
+          mergeReviews([response.data.review]);
+        } else {
+          mergeReviews([review]);
+        }
+      } catch (error) {
+        console.error('Error submitting review:', error);
+      }
+    })();
   };
 
   const updateReview = (id: string, updates: Partial<Review>) => {
-    setReviews((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? { ...item, ...updates, updatedAt: new Date().toISOString() }
-          : item
-      )
-    );
+    void (async () => {
+      try {
+        const response = await api.patch(`/reviews/${id}`, updates);
+        if (response.data?.review) {
+          mergeReviews([response.data.review]);
+        } else {
+          setReviews((prev) =>
+            prev.map((item) =>
+              item.id === id
+                ? { ...item, ...updates, updatedAt: new Date().toISOString() }
+                : item
+            )
+          );
+        }
+      } catch (error) {
+        console.error('Error updating review:', error);
+      }
+    })();
   };
 
   const deleteReview = (id: string) => {
-    setReviews((prev) => prev.filter((item) => item.id !== id));
+    void (async () => {
+      try {
+        await api.delete(`/reviews/${id}`);
+        setReviews((prev) => prev.filter((item) => item.id !== id));
+      } catch (error) {
+        console.error('Error deleting review:', error);
+      }
+    })();
   };
 
   const flagReview = (id: string) => {
-    updateReview(id, { flagged: true });
+    void (async () => {
+      try {
+        await api.post(`/reviews/${id}/flag`);
+        updateReview(id, { flagged: true });
+      } catch (error) {
+        console.error('Error flagging review:', error);
+      }
+    })();
   };
 
   const getReviewById = (id: string) => reviews.find((item) => item.id === id);
+
+  const fetchPropertyReviews = async (propertyId: string) => {
+    try {
+      const response = await api.get(`/reviews?propertyId=${propertyId}`);
+      mergeReviews(response.data || []);
+    } catch (error) {
+      console.error('Error loading property reviews:', error);
+    }
+  };
 
   const getPropertyReviews = (propertyId: string) =>
     reviews.filter((review) => review.propertyId === propertyId && review.status !== 'hidden');
@@ -155,6 +181,7 @@ export const ReviewsProvider: React.FC<{ children: React.ReactNode }> = ({ child
       flagReview,
       getReviewById,
       getPropertyReviews,
+      fetchPropertyReviews,
       getAverageRatings,
       canEditReview,
     }),

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { Card } from '../../components/common/Card';
 import { useSearch } from '../../contexts/SearchContext';
-import { mockProperties } from '../../data/mockProperties';
+import { useListings } from '../../contexts/ListingsContext';
 import { formatCurrency } from '../../utils/search';
 
 const amenityIconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -55,7 +55,8 @@ const neighborhoodInsights = [
 export const PropertyDetailsScreen = ({ route, navigation }: any) => {
   const { propertyId } = route.params;
   const { savedPropertyIds, toggleSavedProperty } = useSearch();
-  const property = mockProperties.find((item) => item.id === propertyId);
+  const { getListingById, fetchListingById } = useListings();
+  const [property, setProperty] = useState(() => getListingById(propertyId));
   const { width } = useWindowDimensions();
   const galleryWidth = Math.max(280, width - 32);
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -67,6 +68,17 @@ export const PropertyDetailsScreen = ({ route, navigation }: any) => {
     if (!property) return [];
     return property.images.length ? property.images : ['photo-1', 'photo-2'];
   }, [property]);
+
+  useEffect(() => {
+    const existing = getListingById(propertyId);
+    if (existing) {
+      setProperty(existing);
+      return;
+    }
+    fetchListingById(propertyId)
+      .then((item) => setProperty(item ?? undefined))
+      .catch(() => undefined);
+  }, [propertyId, getListingById, fetchListingById]);
 
   if (!property) {
     return (

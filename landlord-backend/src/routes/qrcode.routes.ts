@@ -7,7 +7,7 @@ import {
   recordScan,
   deleteQRCode,
 } from '../controllers/qrcode.controller.js';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireRole } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -15,10 +15,10 @@ const router = Router();
 router.post('/scan/:unitId', recordScan);
 
 // Protected routes
-router.get('/', authenticate, getQRCodes);
-router.get('/:id', authenticate, getQRCode);
-router.post('/generate/:unitId', authenticate, generateQRCode);
-router.patch('/:id/toggle', authenticate, toggleQRCode);
-router.delete('/:id', authenticate, deleteQRCode);
+router.get('/', authenticate, requireRole('landlord'), getQRCodes);
+router.get('/:id', authenticate, requireRole('landlord'), getQRCode);
+router.post('/generate/:unitId', authenticate, requireRole('landlord'), generateQRCode);
+router.patch('/:id/toggle', authenticate, requireRole('landlord'), toggleQRCode);
+router.delete('/:id', authenticate, requireRole('landlord'), deleteQRCode);
 
 export default router;

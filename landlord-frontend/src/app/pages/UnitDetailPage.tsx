@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useApp } from '../../context/AppContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -6,11 +6,29 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { ArrowLeft, Edit, QrCode, Download } from 'lucide-react';
 import { format } from 'date-fns';
+import { apiRequest } from '../../lib/api';
+
+type ApiQRCode = {
+  id: string;
+  unitId: string;
+  unitNumber: string;
+  propertyName: string;
+  propertyAddress: string;
+  codeUrl: string;
+  landingPageUrl: string;
+  scanCount: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+};
 
 export default function UnitDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { units, properties } = useApp();
+  const [qrCode, setQrCode] = useState<ApiQRCode | null>(null);
+  const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
 
   const unit = units.find(u => u.id === id);
   const property = unit ? properties.find(p => p.id === unit.propertyId) : null;
@@ -32,6 +50,67 @@ export default function UnitDetailPage() {
       case 'occupied': return 'bg-blue-100 text-blue-800';
       case 'vacating': return 'bg-orange-100 text-orange-800';
       default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  useEffect(() => {
+    if (!unit?.id) return;
+    let isActive = true;
+
+    const loadQrCode = async () => {
+      setQrLoading(true);
+      setQrError(null);
+
+      try {
+        const codes = await apiRequest<ApiQRCode[]>('/api/qrcodes');
+        if (!isActive) return;
+
+        const match = codes.find((code) => code.unitId === unit.id) || null;
+        setQrCode(match);
+      } catch (err) {
+        if (!isActive) return;
+        setQrError(err instanceof Error ? err.message : 'Failed to load QR code');
+      } finally {
+        if (isActive) setQrLoading(false);
+      }
+    };
+
+    loadQrCode();
+
+    return () => {
+      isActive = false;
+    };
+  }, [unit?.id]);
+
+  const handleDownloadQR = (code: ApiQRCode) => {
+    if (!code.codeUrl) {
+      alert('QR code image is not available yet.');
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = code.codeUrl;
+    link.download = `qr-${code.unitNumber}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleGenerateQR = async () => {
+    if (!unit) return;
+    setQrLoading(true);
+    setQrError(null);
+
+    try {
+      const response = await apiRequest<{ qrCode: ApiQRCode }>(
+        `/api/qrcodes/generate/${unit.id}`,
+        'POST'
+      );
+      setQrCode(response.qrCode);
+    } catch (err) {
+      setQrError(err instanceof Error ? err.message : 'Failed to generate QR code');
+    } finally {
+      setQrLoading(false);
     }
   };
 
@@ -132,14 +211,34 @@ export default function UnitDetailPage() {
               <CardTitle>QR Code</CardTitle>
             </CardHeader>
             <CardContent className="text-center space-y-4">
-              <div className="p-6 bg-gray-100 rounded-lg inline-block">
-                <QrCode className="size-24 mx-auto" />
-              </div>
-              <p className="text-xs text-gray-500 font-mono">{unit.qrCode}</p>
-              <Button variant="outline" className="w-full">
-                <Download className="size-4 mr-2" />
-                Download QR Code
-              </Button>
+              {qrLoading && <p className="text-sm text-gray-500">Loading QR code...</p>}
+              {!qrLoading && qrError && <p className="text-sm text-red-600">{qrError}</p>}
+              {!qrLoading && !qrError && qrCode?.codeUrl && (
+                <div className="p-4 bg-gray-100 rounded-lg inline-block">
+                  <img src={qrCode.codeUrl} alt="QR Code" className="size-48" />
+                </div>
+              )}
+              {!qrLoading && !qrError && !qrCode && (
+                <div className="p-6 bg-gray-100 rounded-lg inline-block">
+                  <QrCode className="size-24 mx-auto" />
+                  <p className="text-xs text-gray-500 mt-3">No QR code generated yet.</p>
+                </div>
+              )}
+              {!qrLoading && !qrError && qrCode && (
+                <p className="text-xs text-gray-500">
+                  {qrCode.isActive ? 'Active' : 'Inactive'} · {qrCode.scanCount} scans
+                </p>
+              )}
+              {!qrLoading && !qrError && qrCode ? (
+                <Button variant="outline" className="w-full" onClick={() => handleDownloadQR(qrCode)}>
+                  <Download className="size-4 mr-2" />
+                  Download QR Code
+                </Button>
+              ) : (
+                <Button variant="outline" className="w-full" onClick={handleGenerateQR}>
+                  Generate QR Code
+                </Button>
+              )}
             </CardContent>
           </Card>
 

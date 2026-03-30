@@ -11,6 +11,113 @@ export const tenantValidation = [
   body('phone').trim().notEmpty().withMessage('Phone number is required'),
 ];
 
+// Tenant self endpoints
+export const getMyLease = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT l.*,
+        u.id as unit_id, u.unit_number, u.bedrooms, u.bathrooms, u.square_feet,
+        u.rent_amount, u.deposit_amount, u.status as unit_status, u.amenities, u.photos,
+        p.name as property_name, p.address as property_address, p.city as property_city,
+        p.state as property_state, p.zip_code as property_zip
+       FROM leases l
+       JOIN units u ON l.unit_id = u.id
+       JOIN properties p ON u.property_id = p.id
+       WHERE l.tenant_id = $1
+       ORDER BY l.start_date DESC
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.json(null);
+      return;
+    }
+
+    const row = result.rows[0];
+    res.json({
+      id: row.id,
+      unitId: row.unit_id,
+      startDate: row.start_date,
+      endDate: row.end_date,
+      rentAmount: parseFloat(row.rent_amount),
+      depositAmount: parseFloat(row.deposit_amount),
+      paymentDueDay: row.payment_due_day,
+      leaseType: row.lease_type,
+      status: row.status,
+      documentUrl: row.document_url,
+      unit: {
+        id: row.unit_id,
+        unitNumber: row.unit_number,
+        bedrooms: Number(row.bedrooms),
+        bathrooms: parseFloat(row.bathrooms),
+        squareFeet: row.square_feet ? Number(row.square_feet) : undefined,
+        rentAmount: parseFloat(row.rent_amount),
+        depositAmount: parseFloat(row.deposit_amount),
+        status: row.unit_status,
+        amenities: row.amenities || [],
+        photos: row.photos || [],
+        property: {
+          name: row.property_name,
+          address: row.property_address,
+          city: row.property_city,
+          state: row.property_state,
+          zipCode: row.property_zip,
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Get tenant lease error:', error);
+    res.status(500).json({ error: 'Failed to fetch tenant lease' });
+  }
+};
+
+export const getMyUnit = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(
+      `SELECT u.*, 
+        p.name as property_name, p.address as property_address, p.city as property_city,
+        p.state as property_state, p.zip_code as property_zip
+       FROM leases l
+       JOIN units u ON l.unit_id = u.id
+       JOIN properties p ON u.property_id = p.id
+       WHERE l.tenant_id = $1
+       ORDER BY l.start_date DESC
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    if (result.rows.length === 0) {
+      res.json(null);
+      return;
+    }
+
+    const row = result.rows[0];
+    res.json({
+      id: row.id,
+      unitNumber: row.unit_number,
+      bedrooms: Number(row.bedrooms),
+      bathrooms: parseFloat(row.bathrooms),
+      squareFeet: row.square_feet ? Number(row.square_feet) : undefined,
+      rentAmount: parseFloat(row.rent_amount),
+      depositAmount: parseFloat(row.deposit_amount),
+      status: row.status,
+      amenities: row.amenities || [],
+      photos: row.photos || [],
+      property: {
+        name: row.property_name,
+        address: row.property_address,
+        city: row.property_city,
+        state: row.property_state,
+        zipCode: row.property_zip,
+      },
+    });
+  } catch (error) {
+    console.error('Get tenant unit error:', error);
+    res.status(500).json({ error: 'Failed to fetch tenant unit' });
+  }
+};
+
 // Get all tenants for landlord
 export const getTenants = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -142,6 +249,67 @@ export const createTenant = async (req: AuthRequest, res: Response): Promise<voi
       moveInDate,
       notes,
     } = req.body;
+
+    const existingTenant = await pool.query(
+      'SELECT id, landlord_id FROM tenants WHERE email = $1',
+      [email]
+    );
+
+    if (existingTenant.rows.length > 0) {
+      const existing = existingTenant.rows[0];
+      if (!existing.landlord_id) {
+        const updated = await pool.query(
+          `UPDATE tenants SET
+            landlord_id = $1,
+            first_name = COALESCE($2, first_name),
+            last_name = COALESCE($3, last_name),
+            phone = COALESCE($4, phone),
+            emergency_contact_name = COALESCE($5, emergency_contact_name),
+            emergency_contact_phone = COALESCE($6, emergency_contact_phone),
+            move_in_date = COALESCE($7, move_in_date),
+            status = COALESCE($8, status),
+            notes = COALESCE($9, notes)
+           WHERE id = $10
+           RETURNING *`,
+          [
+            req.userId,
+            firstName,
+            lastName,
+            phone,
+            emergencyContactName || null,
+            emergencyContactPhone || null,
+            moveInDate || null,
+            'inactive',
+            notes || null,
+            existing.id,
+          ]
+        );
+
+        const tenant = updated.rows[0];
+        res.status(200).json({
+          message: 'Tenant linked successfully',
+          tenant: {
+            id: tenant.id,
+            firstName: tenant.first_name,
+            lastName: tenant.last_name,
+            email: tenant.email,
+            phone: tenant.phone,
+            emergencyContactName: tenant.emergency_contact_name,
+            emergencyContactPhone: tenant.emergency_contact_phone,
+            moveInDate: tenant.move_in_date,
+            moveOutDate: tenant.move_out_date,
+            status: tenant.status,
+            notes: tenant.notes,
+            createdAt: tenant.created_at,
+            updatedAt: tenant.updated_at,
+          },
+        });
+        return;
+      }
+
+      res.status(400).json({ error: 'Email already registered to another tenant' });
+      return;
+    }
 
     const result = await pool.query(
       `INSERT INTO tenants (

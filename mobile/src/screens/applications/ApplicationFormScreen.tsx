@@ -1,22 +1,34 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { Card } from '../../components/common/Card';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApplications } from '../../contexts/ApplicationsContext';
-import { mockProperties } from '../../data/mockProperties';
+import { useListings } from '../../contexts/ListingsContext';
 import { PropertyListing } from '../../types';
 import { formatCurrency } from '../../utils/search';
 
 export const ApplicationFormScreen = ({ navigation, route }: any) => {
   const { user } = useAuth();
   const { submitApplication } = useApplications();
+  const { getListingById, fetchListingById } = useListings();
   const propertyId = route?.params?.propertyId as string | undefined;
-  const property = useMemo<PropertyListing | undefined>(
-    () => mockProperties.find((item) => item.id === propertyId),
-    [propertyId]
+  const [property, setProperty] = useState<PropertyListing | undefined>(
+    () => (propertyId ? getListingById(propertyId) : undefined)
   );
+
+  useEffect(() => {
+    if (!propertyId) return;
+    const existing = getListingById(propertyId);
+    if (existing) {
+      setProperty(existing);
+      return;
+    }
+    fetchListingById(propertyId)
+      .then((item) => setProperty(item ?? undefined))
+      .catch(() => undefined);
+  }, [propertyId, getListingById, fetchListingById]);
 
   const [firstName, setFirstName] = useState(user?.firstName ?? '');
   const [lastName, setLastName] = useState(user?.lastName ?? '');

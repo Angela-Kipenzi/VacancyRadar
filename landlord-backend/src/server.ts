@@ -13,6 +13,14 @@ import tenantRoutes from './routes/tenant.routes.js';
 import qrcodeRoutes from './routes/qrcode.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
+import paymentRoutes from './routes/payment.routes.js';
+import maintenanceRoutes from './routes/maintenance.routes.js';
+import tenancyRoutes from './routes/tenancy.routes.js';
+import documentRoutes from './routes/document.routes.js';
+import listingRoutes from './routes/listing.routes.js';
+import reviewRoutes from './routes/review.routes.js';
+import paymentMethodRoutes from './routes/payment-method.routes.js';
+import paymentTransactionRoutes from './routes/payment-transaction.routes.js';
 
 const app: Express = express();
 
@@ -52,6 +60,14 @@ app.use('/api/tenants', tenantRoutes);
 app.use('/api/qrcodes', qrcodeRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/tenancy', tenancyRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/listings', listingRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/payment-methods', paymentMethodRoutes);
+app.use('/api/payment-transactions', paymentTransactionRoutes);
 
 // Root route
 app.get('/', (_req: Request, res: Response) => {
@@ -68,6 +84,14 @@ app.get('/', (_req: Request, res: Response) => {
       qrcodes: '/api/qrcodes',
       notifications: '/api/notifications',
       analytics: '/api/analytics',
+      payments: '/api/payments',
+      maintenance: '/api/maintenance',
+      tenancy: '/api/tenancy',
+      documents: '/api/documents',
+      listings: '/api/listings',
+      reviews: '/api/reviews',
+      paymentMethods: '/api/payment-methods',
+      paymentTransactions: '/api/payment-transactions',
     },
   });
 });

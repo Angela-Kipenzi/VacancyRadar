@@ -1,11 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Property, Unit, Application, Lease, Tenant, Notification, User } from '../types';
-import {
-  mockApplications,
-  mockLeases,
-  mockTenants,
-  mockNotifications,
-} from '../data/mockData';
 import { apiRequest, clearAuthToken, getAuthToken, setAuthToken } from '../lib/api';
 
 interface AppContextType {
@@ -74,6 +68,74 @@ type ApiUnit = {
   createdAt: string;
 };
 
+type ApiApplication = {
+  id: string;
+  unitId: string;
+  unitNumber?: string;
+  propertyName?: string;
+  propertyAddress?: string;
+  applicantName: string;
+  applicantEmail: string;
+  applicantPhone: string;
+  currentAddress?: string | null;
+  employmentStatus?: string | null;
+  employerName?: string | null;
+  annualIncome?: number | null;
+  moveInDate?: string | null;
+  numOccupants?: number | null;
+  hasPets?: boolean | null;
+  petDetails?: string | null;
+  status: string;
+  notes?: string | null;
+  documents?: any;
+  submittedAt?: string;
+  createdAt?: string;
+};
+
+type ApiLease = {
+  id: string;
+  unitId: string;
+  startDate: string;
+  endDate: string;
+  rentAmount: number;
+  depositAmount: number;
+  paymentDueDay: number;
+  leaseType: string;
+  status: string;
+  documentUrl?: string | null;
+  signedDate?: string | null;
+  notes?: string | null;
+  tenant?: { id: string };
+  createdAt?: string;
+};
+
+type ApiTenant = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  moveInDate?: string | null;
+  moveOutDate?: string | null;
+  status: string;
+  currentUnit?: {
+    unitNumber?: string;
+    propertyName?: string;
+    leaseId?: string;
+  } | null;
+  createdAt?: string;
+};
+
+type ApiNotification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  link?: string | null;
+  createdAt: string;
+};
+
 const defaultPropertyPhoto = 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800';
 const defaultUnitPhoto = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800';
 
@@ -135,26 +197,176 @@ const toFrontendUnit = (unit: ApiUnit): Unit => ({
   amenities: unit.amenities || [],
   status: mapUnitStatusFromApi(unit.status),
   availabilityDate: unit.availableDate || '',
-  qrCode: `QR-${unit.unitNumber}`,
+  qrCode: '',
   createdAt: unit.createdAt,
+});
+
+const mapApplicationStatus = (status: string): Application['status'] => {
+  if (status === 'approved') return 'approved';
+  if (status === 'rejected') return 'rejected';
+  if (status === 'withdrawn') return 'rejected';
+  return 'pending';
+};
+
+const toFrontendApplication = (
+  application: ApiApplication,
+  unitsList: Unit[],
+  propertiesList: Property[]
+): Application => {
+  const nameParts = application.applicantName.split(' ').filter(Boolean);
+  const firstName = nameParts[0] || 'Applicant';
+  const lastName = nameParts.slice(1).join(' ') || '';
+  const unit = unitsList.find((item) => item.id === application.unitId);
+  const property = unit
+    ? propertiesList.find((item) => item.id === unit.propertyId)
+    : propertiesList.find((item) => item.name === application.propertyName);
+  let docs: any[] = [];
+  if (Array.isArray(application.documents)) {
+    docs = application.documents;
+  } else if (application.documents) {
+    try {
+      docs = JSON.parse(application.documents);
+    } catch {
+      docs = [];
+    }
+  }
+
+  return {
+    id: application.id,
+    unitId: application.unitId,
+    propertyId: property?.id || unit?.propertyId || '',
+    applicant: {
+      firstName,
+      lastName,
+      email: application.applicantEmail,
+      phone: application.applicantPhone,
+      currentAddress: application.currentAddress || '',
+    },
+    employment: {
+      employer: application.employerName || '',
+      position: application.employmentStatus || '',
+      income: Number(application.annualIncome || 0),
+      yearsEmployed: 0,
+    },
+    rentalHistory: [],
+    documents: (docs || []).map((doc: any, index: number) => ({
+      id: doc.id || `doc-${application.id}-${index}`,
+      name: doc.name || 'Document',
+      url: doc.url || '',
+      type: doc.type || 'file',
+    })),
+    coverLetter: application.notes || '',
+    status: mapApplicationStatus(application.status),
+    submittedAt: application.submittedAt || application.createdAt || new Date().toISOString(),
+    notes: application.notes ? [application.notes] : [],
+  };
+};
+
+const toFrontendLease = (lease: ApiLease, unitsList: Unit[]): Lease => {
+  const unit = unitsList.find((item) => item.id === lease.unitId);
+  return {
+    id: lease.id,
+    unitId: lease.unitId,
+    propertyId: unit?.propertyId || '',
+    tenantId: lease.tenant?.id || '',
+    startDate: lease.startDate,
+    endDate: lease.endDate,
+    monthlyRent: Number(lease.rentAmount || 0),
+    securityDeposit: Number(lease.depositAmount || 0),
+    terms: lease.notes || lease.leaseType || '',
+    status: lease.status as Lease['status'],
+    signedAt: lease.signedDate || null,
+    signatureStatus: lease.signedDate ? 'signed' : 'pending',
+    documentUrl: lease.documentUrl || '',
+    createdAt: lease.createdAt || new Date().toISOString(),
+  };
+};
+
+const mapTenantStatus = (status: string): Tenant['status'] => {
+  if (status === 'past') return 'past';
+  return 'current';
+};
+
+const toFrontendTenant = (
+  tenant: ApiTenant,
+  unitsList: Unit[],
+  propertiesList: Property[]
+): Tenant => {
+  const currentUnit = tenant.currentUnit;
+  const matchingProperty = currentUnit?.propertyName
+    ? propertiesList.find((item) => item.name === currentUnit.propertyName)
+    : undefined;
+  const matchingUnit = matchingProperty
+    ? unitsList.find((item) => item.propertyId === matchingProperty.id && item.unitNumber === currentUnit?.unitNumber)
+    : undefined;
+
+  return {
+    id: tenant.id,
+    firstName: tenant.firstName,
+    lastName: tenant.lastName,
+    email: tenant.email,
+    phone: tenant.phone,
+    currentUnitId: matchingUnit?.id || null,
+    currentLeaseId: currentUnit?.leaseId || null,
+    moveInDate: tenant.moveInDate || null,
+    moveOutDate: tenant.moveOutDate || null,
+    status: mapTenantStatus(tenant.status),
+    createdAt: tenant.createdAt || new Date().toISOString(),
+  };
+};
+
+const mapNotificationType = (value: string): Notification['type'] => {
+  if (value === 'application') return 'application';
+  if (value === 'lease') return 'lease_signed';
+  if (value === 'maintenance') return 'system';
+  if (value === 'payment') return 'system';
+  return 'system';
+};
+
+const toFrontendNotification = (notification: ApiNotification): Notification => ({
+  id: notification.id,
+  type: mapNotificationType(notification.type),
+  title: notification.title,
+  message: notification.message,
+  read: notification.isRead,
+  createdAt: notification.createdAt,
+  relatedId: notification.link || undefined,
 });
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
-  const [applications, setApplications] = useState<Application[]>(mockApplications);
-  const [leases, setLeases] = useState<Lease[]>(mockLeases);
-  const [tenants, setTenants] = useState<Tenant[]>(mockTenants);
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const [applications, setApplications] = useState<Application[]>([]);
+  const [leases, setLeases] = useState<Lease[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const loadDashboardData = async () => {
-    const [apiProperties, apiUnits] = await Promise.all([
+    const [
+      apiProperties,
+      apiUnits,
+      apiApplications,
+      apiLeases,
+      apiTenants,
+      apiNotifications,
+    ] = await Promise.all([
       apiRequest<ApiProperty[]>('/api/properties'),
       apiRequest<ApiUnit[]>('/api/units'),
+      apiRequest<ApiApplication[]>('/api/applications'),
+      apiRequest<ApiLease[]>('/api/leases'),
+      apiRequest<ApiTenant[]>('/api/tenants'),
+      apiRequest<ApiNotification[]>('/api/notifications'),
     ]);
-    setProperties(apiProperties.map(toFrontendProperty));
-    setUnits(apiUnits.map(toFrontendUnit));
+
+    const nextProperties = apiProperties.map(toFrontendProperty);
+    const nextUnits = apiUnits.map(toFrontendUnit);
+    setProperties(nextProperties);
+    setUnits(nextUnits);
+    setApplications(apiApplications.map((app) => toFrontendApplication(app, nextUnits, nextProperties)));
+    setLeases(apiLeases.map((lease) => toFrontendLease(lease, nextUnits)));
+    setTenants(apiTenants.map((tenant) => toFrontendTenant(tenant, nextUnits, nextProperties)));
+    setNotifications(apiNotifications.map(toFrontendNotification));
   };
 
   useEffect(() => {
@@ -173,6 +385,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setUser(null);
         setProperties([]);
         setUnits([]);
+        setApplications([]);
+        setLeases([]);
+        setTenants([]);
+        setNotifications([]);
       }
     };
 
@@ -201,10 +417,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setUser(null);
     setProperties([]);
     setUnits([]);
-    setApplications(mockApplications);
-    setLeases(mockLeases);
-    setTenants(mockTenants);
-    setNotifications(mockNotifications);
+    setApplications([]);
+    setLeases([]);
+    setTenants([]);
+    setNotifications([]);
   };
 
   const addProperty = (property: Omit<Property, 'id' | 'createdAt'>) => {
@@ -295,7 +511,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const fallback: Unit = {
           ...unit,
           id: `unit-${Date.now()}`,
-          qrCode: `QR-${unit.unitNumber}-${Date.now()}`,
+          qrCode: '',
           createdAt: new Date().toISOString(),
         };
         setUnits((prev) => [fallback, ...prev]);
@@ -341,28 +557,95 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const updateApplication = (id: string, updates: Partial<Application>) => {
-    setApplications(applications.map(a => (a.id === id ? { ...a, ...updates } : a)));
+    setApplications((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
+
+    void (async () => {
+      try {
+        if (updates.status) {
+          await apiRequest(`/api/applications/${id}/status`, 'PATCH', {
+            status: updates.status,
+          });
+        }
+      } catch (_error) {
+        await loadDashboardData();
+      }
+    })();
   };
 
   const addLease = (lease: Omit<Lease, 'id' | 'createdAt'>) => {
-    const newLease: Lease = {
-      ...lease,
-      id: `lease-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-    };
-    setLeases([...leases, newLease]);
+    void (async () => {
+      try {
+        const response = await apiRequest<{ lease: ApiLease }>('/api/leases', 'POST', {
+          unitId: lease.unitId,
+          tenantId: lease.tenantId,
+          startDate: lease.startDate,
+          endDate: lease.endDate,
+          rentAmount: lease.monthlyRent,
+          depositAmount: lease.securityDeposit,
+          paymentDueDay: 1,
+          leaseType: lease.terms ? 'fixed' : 'month-to-month',
+          documentUrl: lease.documentUrl || null,
+          signedDate: lease.signedAt || null,
+          notes: lease.terms || null,
+        });
+        if (response.lease) {
+          setLeases((prev) => [toFrontendLease(response.lease, units), ...prev]);
+        } else {
+          await loadDashboardData();
+        }
+      } catch (_error) {
+        const fallback: Lease = {
+          ...lease,
+          id: `lease-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+        };
+        setLeases((prev) => [...prev, fallback]);
+      }
+    })();
   };
 
   const updateLease = (id: string, updates: Partial<Lease>) => {
-    setLeases(leases.map(l => (l.id === id ? { ...l, ...updates } : l)));
+    setLeases((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
+
+    void (async () => {
+      try {
+        await apiRequest(`/api/leases/${id}`, 'PUT', {
+          startDate: updates.startDate,
+          endDate: updates.endDate,
+          rentAmount: updates.monthlyRent,
+          depositAmount: updates.securityDeposit,
+          leaseType: updates.terms ? 'fixed' : undefined,
+          status: updates.status,
+          documentUrl: updates.documentUrl,
+          signedDate: updates.signedAt,
+          notes: updates.terms,
+        });
+      } catch (_error) {
+        await loadDashboardData();
+      }
+    })();
   };
 
   const markNotificationRead = (id: string) => {
-    setNotifications(notifications.map(n => (n.id === id ? { ...n, read: true } : n)));
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    void (async () => {
+      try {
+        await apiRequest(`/api/notifications/${id}/read`, 'PATCH');
+      } catch (_error) {
+        await loadDashboardData();
+      }
+    })();
   };
 
   const markAllNotificationsRead = () => {
-    setNotifications(notifications.map(n => ({ ...n, read: true })));
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    void (async () => {
+      try {
+        await apiRequest('/api/notifications/read/all', 'PATCH');
+      } catch (_error) {
+        await loadDashboardData();
+      }
+    })();
   };
 
   const value: AppContextType = {

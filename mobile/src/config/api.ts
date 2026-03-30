@@ -6,7 +6,7 @@ declare const __DEV__: boolean;
 
 // Configure your API base URL
 export const API_BASE_URL = __DEV__ 
-  ? 'http://10.13.1.251:5000/api'  // Development
+  ? 'http://10.13.1.108:5000/api'  // Development
   : 'https://production-api.com/api';  // Production
 
 // Create axios instance
