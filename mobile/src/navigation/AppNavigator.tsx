@@ -7,6 +7,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
 import { colors } from '../theme/colors';
 
+import { NotificationsProvider, useNotifications } from '../contexts/NotificationsContext';
+
 // Auth Screens
 import { LoginScreen } from '../screens/auth/LoginScreen';
 import { RegisterScreen } from '../screens/auth/RegisterScreen';
@@ -17,8 +19,16 @@ import { PaymentsScreen } from '../screens/payments/PaymentsScreen';
 import { PaymentMethodsScreen } from '../screens/payments/PaymentMethodsScreen';
 import { AddPaymentMethodScreen } from '../screens/payments/AddPaymentMethodScreen';
 import { PaymentHistoryScreen } from '../screens/payments/PaymentHistoryScreen';
+import { MakePaymentScreen } from '../screens/payments/MakePaymentScreen';
 import { MaintenanceScreen } from '../screens/maintenance/MaintenanceScreen';
+import { CreateMaintenanceRequestScreen } from '../screens/maintenance/CreateMaintenanceRequestScreen';
+import { MaintenanceRequestDetailScreen } from '../screens/maintenance/MaintenanceRequestDetailScreen';
 import { ProfileScreen } from '../screens/profile/ProfileScreen';
+import { EditProfileScreen } from '../screens/profile/EditProfileScreen';
+import { HelpSupportScreen } from '../screens/profile/HelpSupportScreen';
+import { AboutScreen } from '../screens/profile/AboutScreen';
+import { NotificationsScreen } from '../screens/notifications/NotificationsScreen';
+import { DocumentsScreen } from '../screens/documents/DocumentsScreen';
 import { MapSearchScreen } from '../screens/search/MapSearchScreen';
 import { SearchFiltersScreen } from '../screens/search/SearchFiltersScreen';
 import { SavedSearchesScreen } from '../screens/search/SavedSearchesScreen';
@@ -38,14 +48,18 @@ import { LeasePreviewScreen } from '../screens/tenancy/LeasePreviewScreen';
 import { CheckInScreen } from '../screens/tenancy/CheckInScreen';
 import { CheckOutScreen } from '../screens/tenancy/CheckOutScreen';
 import { DepositTrackingScreen } from '../screens/tenancy/DepositTrackingScreen';
+import { PhotoComparisonScreen } from '../screens/tenancy/PhotoComparisonScreen';
 
 const Stack = createStackNavigator();
+const RootStack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 const SearchStack = createStackNavigator();
 const TenancyStack = createStackNavigator();
+const MaintenanceStack = createStackNavigator();
 const ApplicationsStack = createStackNavigator();
 const ReviewsStack = createStackNavigator();
 const PaymentsStack = createStackNavigator();
+const ProfileStack = createStackNavigator();
 
 const SearchStackNavigator = () => {
   return (
@@ -140,6 +154,11 @@ const TenancyStackNavigator = () => {
         component={DepositTrackingScreen}
         options={{ title: 'Deposit Tracking' }}
       />
+      <TenancyStack.Screen
+        name="PhotoComparison"
+        component={PhotoComparisonScreen}
+        options={{ title: 'Condition Comparison' }}
+      />
     </TenancyStack.Navigator>
   );
 };
@@ -200,7 +219,37 @@ const ReviewsStackNavigator = () => {
   );
 };
 
+const MaintenanceStackNavigator = () => {
+  return (
+    <MaintenanceStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.white,
+        headerTitleStyle: { fontWeight: 'bold' },
+      }}
+    >
+      <MaintenanceStack.Screen
+        name="MaintenanceHome"
+        component={MaintenanceScreen}
+        options={{ title: 'Maintenance' }}
+      />
+      <MaintenanceStack.Screen
+        name="CreateRequest"
+        component={CreateMaintenanceRequestScreen}
+        options={{ title: 'New Request' }}
+      />
+      <MaintenanceStack.Screen
+        name="RequestDetail"
+        component={MaintenanceRequestDetailScreen}
+        options={{ title: 'Request Details' }}
+      />
+    </MaintenanceStack.Navigator>
+  );
+};
+
 const TabNavigator = () => {
+  const { unreadCount } = useNotifications();
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -271,13 +320,16 @@ const TabNavigator = () => {
       />
       <Tab.Screen 
         name="Maintenance" 
-        component={MaintenanceScreen} 
-        options={{ title: 'Maintenance' }}
+        component={MaintenanceStackNavigator} 
+        options={{ headerShown: false }}
       />
       <Tab.Screen 
         name="Profile" 
-        component={ProfileScreen} 
-        options={{ title: 'My Profile' }}
+        component={ProfileStackNavigator} 
+        options={{ 
+          headerShown: false,
+          tabBarBadge: unreadCount > 0 ? unreadCount : undefined,
+        }}
       />
     </Tab.Navigator>
   );
@@ -309,8 +361,29 @@ export const AppNavigator = () => {
 
   return (
     <NavigationContainer>
-      {user ? <TabNavigator /> : <AuthStack />}
+      {user ? <AppStack /> : <AuthStack />}
     </NavigationContainer>
+  );
+};
+
+const AppStack = () => {
+  return (
+    <NotificationsProvider>
+      <RootStack.Navigator screenOptions={{ headerShown: false }}>
+        <RootStack.Screen name="Tabs" component={TabNavigator} />
+        <RootStack.Screen
+          name="Documents"
+          component={DocumentsScreen}
+          options={{
+            headerShown: true,
+            title: 'Documents',
+            headerStyle: { backgroundColor: colors.primary },
+            headerTintColor: colors.white,
+            headerTitleStyle: { fontWeight: 'bold' },
+          }}
+        />
+      </RootStack.Navigator>
+    </NotificationsProvider>
   );
 };
 const PaymentsStackNavigator = () => {
@@ -338,6 +411,45 @@ const PaymentsStackNavigator = () => {
         component={PaymentHistoryScreen}
         options={{ title: 'Payment History' }}
       />
+      <PaymentsStack.Screen
+        name="MakePayment"
+        component={MakePaymentScreen}
+        options={{ title: 'Make Payment' }}
+      />
     </PaymentsStack.Navigator>
+  );
+};
+
+const ProfileStackNavigator = () => {
+  return (
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.primary },
+        headerTintColor: colors.white,
+        headerTitleStyle: { fontWeight: 'bold' },
+      }}
+    >
+      <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} options={{ title: 'My Profile' }} />
+      <ProfileStack.Screen
+        name="EditProfile"
+        component={EditProfileScreen}
+        options={{ title: 'Edit Profile' }}
+      />
+      <ProfileStack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{ title: 'Notifications' }}
+      />
+      <ProfileStack.Screen
+        name="HelpSupport"
+        component={HelpSupportScreen}
+        options={{ title: 'Help & Support' }}
+      />
+      <ProfileStack.Screen
+        name="About"
+        component={AboutScreen}
+        options={{ title: 'About' }}
+      />
+    </ProfileStack.Navigator>
   );
 };

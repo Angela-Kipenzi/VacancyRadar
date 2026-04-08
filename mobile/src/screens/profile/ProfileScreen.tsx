@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -13,7 +14,13 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { colors } from '../../theme/colors';
 
-export const ProfileScreen = () => {
+type ProfileMenuItem = {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  onPress: () => void;
+};
+
+export const ProfileScreen = ({ navigation }: any) => {
   const { user, logout } = useAuth();
 
   const handleLogout = () => {
@@ -33,31 +40,31 @@ export const ProfileScreen = () => {
     );
   };
 
-  const menuItems = [
+  const menuItems: ProfileMenuItem[] = [
     {
       icon: 'person-outline',
       title: 'Edit Profile',
-      onPress: () => {},
+      onPress: () => navigation.navigate('EditProfile'),
     },
     {
       icon: 'document-text-outline',
       title: 'My Documents',
-      onPress: () => {},
+      onPress: () => navigation.navigate('Documents'),
     },
     {
       icon: 'notifications-outline',
       title: 'Notifications',
-      onPress: () => {},
+      onPress: () => navigation.navigate('Notifications'),
     },
     {
       icon: 'help-circle-outline',
       title: 'Help & Support',
-      onPress: () => {},
+      onPress: () => navigation.navigate('HelpSupport'),
     },
     {
       icon: 'information-circle-outline',
       title: 'About',
-      onPress: () => {},
+      onPress: () => navigation.navigate('About'),
     },
   ];
 
@@ -67,9 +74,13 @@ export const ProfileScreen = () => {
       <View style={styles.header}>
         <View style={styles.avatarContainer}>
           <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.firstName?.[0]}{user?.lastName?.[0]}
-            </Text>
+            {user?.profilePhotoUrl ? (
+              <Image source={{ uri: user.profilePhotoUrl }} style={styles.avatarImage} />
+            ) : (
+              <Text style={styles.avatarText}>
+                {user?.firstName?.[0]}{user?.lastName?.[0]}
+              </Text>
+            )}
           </View>
         </View>
         <Text style={styles.name}>
@@ -134,6 +145,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 40,
   },
   avatarText: {
     fontSize: 32,

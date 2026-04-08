@@ -13,6 +13,13 @@ const statusColors: Record<ApplicationStatus, string> = {
   withdrawn: colors.gray[400],
 };
 
+const formatDateSafe = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return format(date, 'MMM dd, yyyy');
+};
+
 export const ApplicationsDashboardScreen = ({ navigation }: any) => {
   const { applications } = useApplications();
 
@@ -38,11 +45,11 @@ export const ApplicationsDashboardScreen = ({ navigation }: any) => {
               onPress={() => navigation.navigate('ApplicationDetail', { applicationId: app.id })}
             >
               <Text style={[styles.cellText, styles.colProperty]} numberOfLines={1}>
-                {app.propertyAddress}
+                {app.propertyName}
               </Text>
               <Text style={[styles.cellText, styles.colUnit]}>{app.unitNumber}</Text>
               <Text style={[styles.cellText, styles.colDate]}>
-                {format(new Date(app.appliedOn), 'MMM dd, yyyy')}
+                {formatDateSafe(app.appliedOn)}
               </Text>
               <View style={[styles.statusBadge, { backgroundColor: statusColors[app.status] + '22' }]}>
                 <Text style={[styles.statusText, { color: statusColors[app.status] }]}>

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { Card } from '../../components/common/Card';
@@ -51,8 +51,8 @@ export const TenancyHomeScreen = ({ navigation }: any) => {
         </View>
         <ProgressBar value={checklistProgress} />
         <Text style={styles.cardMeta}>
-          {Math.round(checklistProgress * 100)}% checklist complete · Reminder{' '}
-          {reminderEnabled ? 'on' : 'off'} · Lease preview {leasePreviewed ? 'done' : 'pending'}
+          {Math.round(checklistProgress * 100)}% checklist complete - Reminder{' '}
+          {reminderEnabled ? 'on' : 'off'} - Lease preview {leasePreviewed ? 'done' : 'pending'}
         </Text>
       </Card>
 
@@ -64,7 +64,7 @@ export const TenancyHomeScreen = ({ navigation }: any) => {
           </TouchableOpacity>
         </View>
         <Text style={styles.cardMeta}>
-          {checkInComplete ? 'Complete' : 'In progress'} · Unit status: {checkIn.unitStatus}
+          {checkInComplete ? 'Complete' : 'In progress'} - Unit status: {checkIn.unitStatus}
         </Text>
         {checkIn.checkInTimestamp && (
           <Text style={styles.cardMeta}>Checked in: {checkIn.checkInTimestamp}</Text>
@@ -85,14 +85,6 @@ export const TenancyHomeScreen = ({ navigation }: any) => {
             <Ionicons name="construct-outline" size={18} color={colors.primary} />
             <Text style={styles.quickText}>Maintenance</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickTile}>
-            <Ionicons name="document-text-outline" size={18} color={colors.primary} />
-            <Text style={styles.quickText}>Lease Docs</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.quickTile}>
-            <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
-            <Text style={styles.quickText}>Messaging</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.quickTile}
             onPress={() => navigation.navigate('Reviews')}
@@ -100,19 +92,40 @@ export const TenancyHomeScreen = ({ navigation }: any) => {
             <Ionicons name="star-outline" size={18} color={colors.primary} />
             <Text style={styles.quickText}>Reviews</Text>
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.quickTile}
+            onPress={() => navigation.navigate('LeasePreview')}
+          >
+            <Ionicons name="document-text-outline" size={18} color={colors.primary} />
+            <Text style={styles.quickText}>Lease Docs</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.reminderRow}>
-          <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-          <Text style={styles.reminderText}>
-            Renewal reminders: {leaseInfo.renewalReminderDays.join(', ')} days before lease end.
-          </Text>
+        
+        <View style={styles.reminderSection}>
+          <View style={styles.reminderRow}>
+            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+            <Text style={styles.reminderText}>
+              Renewal reminders: {leaseInfo.renewalReminderDays.join(', ')} days before lease end.
+            </Text>
+          </View>
+          <TouchableOpacity 
+            style={styles.reminderButton} 
+            onPress={() => {
+              const options = [
+                { text: '60, 30, 15 days', onPress: () => scheduleRenewal([60, 30, 15]) },
+                { text: '90, 60, 30 days', onPress: () => scheduleRenewal([90, 60, 30]) },
+                { text: '30, 15, 7 days', onPress: () => scheduleRenewal([30, 15, 7]) },
+                { text: 'Cancel', style: 'cancel' as const },
+              ];
+              Alert.alert('Schedule Reminders', 'Choose renewal notification lead times:', options);
+            }}
+          >
+            <Ionicons name="notifications-outline" size={16} color={colors.primary} />
+            <Text style={styles.reminderButtonText}>
+              {renewalReminderIds.length ? 'Reschedule Reminders' : 'Schedule Reminders'}
+            </Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.reminderButton} onPress={scheduleRenewal}>
-          <Ionicons name="notifications-outline" size={16} color={colors.primary} />
-          <Text style={styles.reminderButtonText}>
-            {renewalReminderIds.length ? 'Reschedule Reminders' : 'Schedule Reminders'}
-          </Text>
-        </TouchableOpacity>
       </Card>
 
       <Card style={styles.card} padding={16}>
@@ -123,7 +136,7 @@ export const TenancyHomeScreen = ({ navigation }: any) => {
           </TouchableOpacity>
         </View>
         <Text style={styles.cardMeta}>
-          {checkOutComplete ? 'Ready for handoff' : 'Pending'} · Unit status: {checkOut.unitStatus}
+          {checkOutComplete ? 'Ready for handoff' : 'Pending'} - Unit status: {checkOut.unitStatus}
         </Text>
       </Card>
 
@@ -135,7 +148,7 @@ export const TenancyHomeScreen = ({ navigation }: any) => {
           </TouchableOpacity>
         </View>
         <Text style={styles.cardMeta}>
-          {deposit.currency} {deposit.amount} · {deposit.status} · {deposit.timelineDays} days timeline
+          {deposit.currency} {deposit.amount} - {deposit.status} - {deposit.timelineDays} days timeline
         </Text>
       </Card>
     </ScrollView>
@@ -215,18 +228,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
   },
+  reminderSection: {
+    marginTop: 12,
+    gap: 10,
+  },
   reminderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginTop: 12,
   },
   reminderText: {
     fontSize: 12,
     color: colors.textSecondary,
+    flex: 1,
   },
   reminderButton: {
-    marginTop: 12,
+    marginTop: 10,
     borderWidth: 1,
     borderColor: colors.primary,
     borderRadius: 10,

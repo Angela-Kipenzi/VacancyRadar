@@ -25,11 +25,8 @@ export const tenancyApi = {
   },
 
   async updateCheckIn(payload: CheckInStatus) {
-    try {
-      await api.post(endpoints.checkIn, payload);
-    } catch {
-      return;
-    }
+    const response = await api.post(endpoints.checkIn, payload);
+    return response.data;
   },
 
   async updateCheckOut(payload: CheckOutStatus) {

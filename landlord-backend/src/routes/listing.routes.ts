@@ -1,10 +1,11 @@
 import { Router } from 'express';
-import { authenticate, requireRole } from '../middleware/auth.js';
+import { authenticate } from '../middleware/auth.js';
 import { getListing, getListings } from '../controllers/listing.controller.js';
 
 const router = Router();
 
-router.use(authenticate, requireRole('tenant'));
+// All listing routes require a valid auth token (tenant or landlord)
+router.use(authenticate);
 
 router.get('/', getListings);
 router.get('/:id', getListing);

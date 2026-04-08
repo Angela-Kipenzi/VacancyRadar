@@ -8,6 +8,8 @@ import {
   TextInput,
   Modal,
   Alert,
+  Image,
+  Dimensions,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -33,8 +35,40 @@ export const CheckInScreen = () => {
     sendWelcomeNotification,
   } = useTenancy();
   const [scannerVisible, setScannerVisible] = useState(false);
+  const [galleryVisible, setGalleryVisible] = useState(false);
   const [locationChecking, setLocationChecking] = useState(false);
+  const [photosExpanded, setPhotosExpanded] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+  const totalPhotos = checkIn.photos.length;
+
+  const getOptionalLastKnownCoords = async () => {
+    try {
+      const current = await Location.getForegroundPermissionsAsync();
+      let status = current.status;
+
+      if (status !== 'granted' && current.canAskAgain) {
+        const requested = await Location.requestForegroundPermissionsAsync();
+        status = requested.status;
+      }
+
+      if (status !== 'granted') {
+        return undefined;
+      }
+
+      const lastLocation = await Location.getLastKnownPositionAsync({});
+      if (!lastLocation) {
+        return undefined;
+      }
+
+      return {
+        lat: lastLocation.coords.latitude,
+        lng: lastLocation.coords.longitude,
+      };
+    } catch (error) {
+      console.error('Unable to read last known location:', error);
+      return undefined;
+    }
+  };
 
   const handleScan = async () => {
     // Check camera permissions
@@ -60,9 +94,23 @@ export const CheckInScreen = () => {
 
   const handleBarCodeScanned = ({ data }: { data: string }) => {
     setScannerVisible(false);
+    
+    // Extract unit id (assumes 'http://.../api/qrcodes/<unitId>' or just '<unitId>')
+    const parts = data.split('/');
+    const unitId = parts.pop() || data;
+    
     const timestamp = new Date().toISOString();
-    setCheckInField({ qrScanned: true, qrData: data, checkInTimestamp: timestamp });
-    syncCheckIn({ qrScanned: true, qrData: data, checkInTimestamp: timestamp }).catch(() => undefined);
+    
+    syncCheckIn({ qrScanned: true, qrData: data, unitId, checkInTimestamp: timestamp })
+      .then(() => {
+        setCheckInField({ qrScanned: true, qrData: data, unitId, checkInTimestamp: timestamp });
+      })
+      .catch((error) => {
+        Alert.alert(
+          'Check-in Failed',
+          error?.response?.data?.error || 'Unit is currently occupied by another tenant.'
+        );
+      });
   };
 
   const handleLocationVerify = async () => {
@@ -113,10 +161,7 @@ export const CheckInScreen = () => {
     });
     if (!result.canceled) {
       const photo = result.assets[0];
-      const lastLocation = await Location.getLastKnownPositionAsync({});
-      const coords = lastLocation
-        ? { lat: lastLocation.coords.latitude, lng: lastLocation.coords.longitude }
-        : undefined;
+      const coords = await getOptionalLastKnownCoords();
       addCheckInPhoto(room, photo.uri, coords);
     }
   };
@@ -137,6 +182,18 @@ export const CheckInScreen = () => {
             <Text style={styles.stepButtonText}>{checkIn.qrScanned ? 'Scanned' : 'Scan'}</Text>
           </TouchableOpacity>
         </View>
+
+        {checkIn.welcomeInfo && (
+          <View style={styles.welcomeBanner}>
+            <Ionicons name="home" size={24} color={colors.primary} style={styles.welcomeIcon} />
+            <View style={styles.welcomeBannerText}>
+              <Text style={styles.welcomeTitle}>
+                Welcome {checkIn.welcomeInfo.firstName} to {checkIn.welcomeInfo.propertyName}
+              </Text>
+              <Text style={styles.welcomeSubtitle}>Unit {checkIn.welcomeInfo.unitNumber}</Text>
+            </View>
+          </View>
+        )}
 
         <View style={styles.stepRow}>
           <View style={styles.stepBadge}>
@@ -185,51 +242,80 @@ export const CheckInScreen = () => {
       </Card>
 
       <Card style={styles.card} padding={16}>
-        <Text style={styles.sectionTitle}>Unit condition photos</Text>
-        <Text style={styles.sectionSubtitle}>Room-by-room guide with timestamps.</Text>
-        {rooms.map((room) => (
-          <View key={room} style={styles.photoRow}>
-            <View>
-              <Text style={styles.photoRoom}>{room}</Text>
-            <Text style={styles.photoMeta}>
-              {checkIn.photos.filter((photo) => photo.room === room).length} added
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionTitle}>Unit condition photos</Text>
+            <Text style={styles.sectionSubtitle}>Room-by-room guide with timestamps.</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={() => setPhotosExpanded((prev) => !prev)}
+          >
+            <Text style={styles.secondaryButtonText}>
+              {photosExpanded ? 'Hide' : 'Manage'}
             </Text>
-          </View>
-            <TouchableOpacity style={styles.photoButton} onPress={() => handleCapturePhoto(room)}>
-              <Ionicons name="camera" size={16} color={colors.primary} />
-              <Text style={styles.photoButtonText}>Add</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-        <TextInput
-          placeholder="Notes for existing damage"
-          value={checkIn.damageNotes}
-          onChangeText={(value) => {
-            setDamageNotes(value);
-            syncCheckIn({ damageNotes: value }).catch(() => undefined);
-          }}
-          style={styles.notesInput}
-          multiline
-        />
+          </TouchableOpacity>
+        </View>
+        {!photosExpanded ? (
+          <Text style={styles.photoSummary}>
+            Photos added: {totalPhotos}. Add room photos and damage notes when ready.
+          </Text>
+        ) : (
+          <>
+            {rooms.map((room) => (
+              <View key={room} style={styles.photoRow}>
+                <View>
+                  <Text style={styles.photoRoom}>{room}</Text>
+                  <Text style={styles.photoMeta}>
+                    {checkIn.photos.filter((photo) => photo.room === room).length} added
+                  </Text>
+                </View>
+                <TouchableOpacity style={styles.photoButton} onPress={() => handleCapturePhoto(room)}>
+                  <Ionicons name="camera" size={16} color={colors.primary} />
+                  <Text style={styles.photoButtonText}>Add</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TextInput
+              placeholder="Notes for existing damage"
+              value={checkIn.damageNotes}
+              onChangeText={(value) => {
+                setDamageNotes(value);
+                syncCheckIn({ damageNotes: value }).catch(() => undefined);
+              }}
+              style={styles.notesInput}
+              multiline
+            />
+          </>
+        )}
       </Card>
 
       <Card style={styles.card} padding={16}>
-        <Text style={styles.sectionTitle}>Completion</Text>
+        <Text style={styles.sectionTitle}>Check-in Photos</Text>
         <Text style={styles.sectionSubtitle}>
-          Timestamped check-in will be recorded for lease compliance.
+          Review all photos taken during check-in.
         </Text>
         <View style={styles.statusRow}>
           <Ionicons
-            name={checkIn.unitStatus === 'occupied' ? 'home' : 'time-outline'}
+            name={checkIn.photos.length > 0 ? 'image' : 'image-outline'}
             size={18}
             color={colors.primary}
           />
-          <Text style={styles.statusText}>Unit status: {checkIn.unitStatus}</Text>
+          <Text style={styles.statusText}>{checkIn.photos.length} Photos Captured</Text>
         </View>
-        <TouchableOpacity style={styles.primaryButton} onPress={handleWelcome}>
-          <Ionicons name="send" size={16} color={colors.white} />
+        <TouchableOpacity 
+          style={styles.primaryButton} 
+          onPress={() => {
+            if (checkIn.photos.length === 0) {
+              Alert.alert('No Photos', 'Please add some room photos first.');
+              return;
+            }
+            setGalleryVisible(true);
+          }}
+        >
+          <Ionicons name="images" size={16} color={colors.white} />
           <Text style={styles.primaryButtonText}>
-            {checkIn.welcomeSent ? 'Welcome Sent' : 'Send Welcome Notification'}
+            View All Photos
           </Text>
         </TouchableOpacity>
       </Card>
@@ -250,6 +336,38 @@ export const CheckInScreen = () => {
               <Ionicons name="close" size={20} color={colors.white} />
             </TouchableOpacity>
           </View>
+        </View>
+      </Modal>
+
+      <Modal visible={galleryVisible} animationType="fade" transparent={true}>
+        <View style={styles.galleryContainer}>
+          <TouchableOpacity 
+            style={styles.galleryClose} 
+            onPress={() => setGalleryVisible(false)}
+            hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+          >
+            <Ionicons name="close" size={28} color={colors.white} />
+          </TouchableOpacity>
+          <ScrollView 
+            horizontal 
+            pagingEnabled 
+            showsHorizontalScrollIndicator={false}
+            style={styles.galleryScroll}
+          >
+            {checkIn.photos.map((photo, index) => (
+              <View key={photo.id || index} style={styles.gallerySlide}>
+                <Image 
+                  source={{ uri: photo.uri }} 
+                  style={styles.galleryImage} 
+                  resizeMode="contain" 
+                />
+                <View style={styles.galleryCaption}>
+                  <Text style={styles.galleryCaptionText}>{photo.room}</Text>
+                  {photo.note && <Text style={styles.galleryCaptionNote}>{photo.note}</Text>}
+                </View>
+              </View>
+            ))}
+          </ScrollView>
         </View>
       </Modal>
     </ScrollView>
@@ -317,11 +435,34 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   sectionSubtitle: {
     fontSize: 12,
     color: colors.textSecondary,
     marginTop: 4,
     marginBottom: 12,
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  secondaryButtonText: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  photoSummary: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 4,
   },
   photoRow: {
     flexDirection: 'row',
@@ -408,5 +549,82 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 999,
+  },
+  welcomeBanner: {
+    backgroundColor: colors.primary + '11',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  welcomeIcon: {
+    backgroundColor: colors.white,
+    padding: 8,
+    borderRadius: 12,
+  },
+  welcomeBannerText: {
+    flex: 1,
+  },
+  welcomeTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  welcomeSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  galleryContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+  },
+  galleryScroll: {
+    flex: 1,
+  },
+  gallerySlide: {
+    width: Dimensions.get('window').width,
+    height: Dimensions.get('window').height,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+  galleryImage: {
+    width: '100%',
+    height: '80%',
+  },
+  galleryClose: {
+    position: 'absolute',
+    top: 60,
+    right: 24,
+    zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    padding: 4,
+  },
+  galleryCaption: {
+    position: 'absolute',
+    bottom: 60,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  galleryCaptionText: {
+    color: colors.white,
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  galleryCaptionNote: {
+    color: colors.textLight,
+    fontSize: 14,
+    marginTop: 4,
+    textAlign: 'center',
   },
 });

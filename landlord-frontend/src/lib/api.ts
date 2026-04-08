@@ -1,4 +1,4 @@
-const API_BASE_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:5000';
+export const API_BASE_URL = (import.meta as any).env.VITE_API_URL || 'http://localhost:5000';
 const TOKEN_STORAGE_KEY = 'vacancyradar_token';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
@@ -48,7 +48,9 @@ export async function apiRequest<T>(
   const data = rawText ? JSON.parse(rawText) : null;
 
   if (!response.ok) {
-    const message = data?.error || data?.message || `Request failed with status ${response.status}`;
+    const baseMessage = data?.error || data?.message || `Request failed with status ${response.status}`;
+    const details = data?.details ? ` (${data.details})` : '';
+    const message = `${baseMessage}${details}`;
     throw new ApiError(message, response.status);
   }
 

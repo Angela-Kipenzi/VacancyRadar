@@ -270,7 +270,11 @@ export const getMyApplications = async (req: AuthRequest, res: Response): Promis
       },
       message: row.notes || undefined,
       status: mapStatus(row.status),
-      appliedOn: row.submitted_at ? String(row.submitted_at).slice(0, 10) : '',
+      appliedOn: row.submitted_at
+        ? String(row.submitted_at).slice(0, 10)
+        : row.created_at
+          ? String(row.created_at).slice(0, 10)
+          : '',
     }));
 
     res.json(applications);
@@ -319,7 +323,11 @@ export const getMyApplication = async (req: AuthRequest, res: Response): Promise
       },
       message: row.notes || undefined,
       status: mapStatus(row.status),
-      appliedOn: row.submitted_at ? String(row.submitted_at).slice(0, 10) : '',
+      appliedOn: row.submitted_at
+        ? String(row.submitted_at).slice(0, 10)
+        : row.created_at
+          ? String(row.created_at).slice(0, 10)
+          : '',
     });
   } catch (error) {
     console.error('Get tenant application error:', error);
@@ -400,9 +408,11 @@ export const withdrawMyApplication = async (req: AuthRequest, res: Response): Pr
 
 // Update application status
 export const updateApplicationStatus = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
   try {
     const { id } = req.params;
     const { status, notes } = req.body;
+    const nextNotes = notes ?? null;
 
     if (!['pending', 'under_review', 'approved', 'rejected', 'withdrawn'].includes(status)) {
       res.status(400).json({ error: 'Invalid status' });
@@ -410,7 +420,9 @@ export const updateApplicationStatus = async (req: AuthRequest, res: Response): 
     }
 
     // Verify ownership
-    const ownershipCheck = await pool.query(
+    await client.query('BEGIN');
+
+    const ownershipCheck = await client.query(
       `SELECT a.id FROM applications a
        JOIN units u ON a.unit_id = u.id
        JOIN properties p ON u.property_id = p.id
@@ -419,29 +431,99 @@ export const updateApplicationStatus = async (req: AuthRequest, res: Response): 
     );
 
     if (ownershipCheck.rows.length === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({ error: 'Application not found' });
       return;
     }
 
-    const result = await pool.query(
+    const result = await client.query(
       `UPDATE applications SET
-        status = $1,
-        notes = COALESCE($2, notes),
-        reviewed_at = CASE WHEN $1 IN ('approved', 'rejected') THEN CURRENT_TIMESTAMP ELSE reviewed_at END
-       WHERE id = $3
+        status = $1::text,
+        notes = COALESCE($2::text, notes),
+        reviewed_at = CASE WHEN $1::text IN ('approved', 'rejected') THEN CURRENT_TIMESTAMP ELSE reviewed_at END
+       WHERE id = $3::uuid
        RETURNING *`,
-      [status, notes, id]
+      [status, nextNotes, id]
     );
 
     const application = result.rows[0];
 
     // Update unit status if approved
     if (status === 'approved') {
-      await pool.query(
+      await client.query(
         'UPDATE units SET status = $1 WHERE id = $2',
         ['pending', application.unit_id]
       );
+
+      let tenantId: string | null = application.tenant_id ?? null;
+
+      if (tenantId) {
+        const tenantResult = await client.query(
+          'SELECT id, landlord_id FROM tenants WHERE id = $1',
+          [tenantId]
+        );
+        if (tenantResult.rows.length > 0) {
+          const currentLandlord = tenantResult.rows[0].landlord_id;
+          if (!currentLandlord || currentLandlord === req.userId) {
+            await client.query(
+              `UPDATE tenants SET
+                landlord_id = $1,
+                status = COALESCE(status, 'inactive')
+               WHERE id = $2`,
+              [req.userId, tenantId]
+            );
+          }
+        }
+      } else {
+        const existingTenant = await client.query(
+          'SELECT id, landlord_id FROM tenants WHERE email = $1',
+          [application.applicant_email]
+        );
+
+        if (existingTenant.rows.length > 0) {
+          tenantId = existingTenant.rows[0].id;
+          const currentLandlord = existingTenant.rows[0].landlord_id;
+          if (!currentLandlord || currentLandlord === req.userId) {
+            await client.query(
+              `UPDATE tenants SET
+                landlord_id = $1,
+                status = COALESCE(status, 'inactive')
+               WHERE id = $2`,
+              [req.userId, tenantId]
+            );
+          }
+        } else {
+          const nameParts = String(application.applicant_name || '').split(' ').filter(Boolean);
+          const firstName = nameParts[0] || 'Tenant';
+          const lastName = nameParts.slice(1).join(' ') || 'Applicant';
+          const createdTenant = await client.query(
+            `INSERT INTO tenants (
+              landlord_id, first_name, last_name, email, phone, status, move_in_date
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id`,
+            [
+              req.userId,
+              firstName,
+              lastName,
+              application.applicant_email,
+              application.applicant_phone,
+              'inactive',
+              application.move_in_date || null,
+            ]
+          );
+          tenantId = createdTenant.rows[0]?.id ?? null;
+        }
+      }
+
+      if (tenantId && !application.tenant_id) {
+        await client.query(
+          'UPDATE applications SET tenant_id = $1 WHERE id = $2',
+          [tenantId, application.id]
+        );
+      }
     }
+
+    await client.query('COMMIT');
 
     res.json({
       message: 'Application updated successfully',
@@ -453,8 +535,12 @@ export const updateApplicationStatus = async (req: AuthRequest, res: Response): 
       },
     });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Update application error:', error);
-    res.status(500).json({ error: 'Failed to update application' });
+    const details = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ error: 'Failed to update application', details });
+  } finally {
+    client.release();
   }
 };
 

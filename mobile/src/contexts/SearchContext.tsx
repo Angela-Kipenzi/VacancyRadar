@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  Amenity,
   SearchFilters,
   SavedSearch,
   SearchHistoryItem,
@@ -35,6 +36,49 @@ const defaultFilters: SearchFilters = {
   amenities: [],
   drawAreaEnabled: false,
 };
+
+const amenityAlias: Record<string, Amenity> = {
+  parking_street: 'Parking',
+  parking_garage: 'Parking',
+  parking_dedicated: 'Parking',
+  laundry_in_unit: 'Laundry',
+  laundry_building: 'Laundry',
+  laundry_none: 'Laundry',
+  gym: 'Gym',
+  pool: 'Pool',
+  security: 'Security',
+  elevator: 'Elevator',
+  storage: 'Storage',
+  pet_cats: 'Pet Friendly',
+  pet_dogs: 'Pet Friendly',
+  pet_both: 'Pet Friendly',
+  pet_none: 'Pet Friendly',
+};
+
+const amenityValues: Amenity[] = [
+  'Parking',
+  'Laundry',
+  'Gym',
+  'Pool',
+  'Security',
+  'Elevator',
+  'Rooftop Deck',
+  'Storage',
+  'Pet Friendly',
+  'Concierge',
+];
+
+const normalizeAmenities = (values: string[] = []): Amenity[] => {
+  const normalized = values
+    .map((value) => (amenityAlias[value] ?? (amenityValues.includes(value as Amenity) ? (value as Amenity) : null)))
+    .filter((value): value is Amenity => Boolean(value));
+  return Array.from(new Set(normalized));
+};
+
+const sanitizeFilters = (filters: SearchFilters): SearchFilters => ({
+  ...filters,
+  amenities: normalizeAmenities(filters.amenities as string[]),
+});
 
 interface SearchContextValue {
   filters: SearchFilters;
@@ -87,8 +131,15 @@ export const SearchProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         AsyncStorage.getItem(STORAGE_KEYS.savedProperties),
       ]);
 
-      setFiltersState(safeParse(storedFilters, defaultFilters));
-      setSavedSearches(safeParse(storedSaved, []));
+      const parsedFilters = safeParse(storedFilters, defaultFilters);
+      setFiltersState(sanitizeFilters(parsedFilters));
+      const parsedSaved = safeParse(storedSaved, []);
+      setSavedSearches(
+        parsedSaved.map((item: SavedSearch) => ({
+          ...item,
+          filters: sanitizeFilters(item.filters),
+        }))
+      );
       setHistory(safeParse(storedHistory, []));
       setViewed(safeParse(storedViewed, []));
       setSavedPropertyIds(safeParse(storedSavedProps, []));
@@ -122,15 +173,16 @@ export const SearchProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [savedPropertyIds]);
 
   const setFilters = (next: SearchFilters) => {
-    setFiltersState(next);
+    setFiltersState(sanitizeFilters(next));
   };
 
   const saveSearch = (name: string, nextFilters: SearchFilters) => {
     const now = new Date().toISOString();
+    const normalizedFilters = sanitizeFilters(nextFilters);
     const newSearch: SavedSearch = {
       id: `saved-${Date.now()}`,
       name,
-      filters: nextFilters,
+      filters: normalizedFilters,
       alerts: {
         push: true,
         emailFrequency: 'weekly',

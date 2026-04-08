@@ -1,7 +1,18 @@
 import { Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { body } from 'express-validator';
 import pool from '../database/connection.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { config } from '../config/index.js';
+
+const ensureUploadDir = () => {
+  const uploadDir = path.resolve(config.upload.directory, 'leases');
+  if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+  }
+  return uploadDir;
+};
 
 // Validation rules
 export const leaseValidation = [
@@ -71,6 +82,7 @@ export const getLeases = async (req: AuthRequest, res: Response): Promise<void> 
       documentUrl: row.document_url,
       signedDate: row.signed_date,
       notes: row.notes,
+      agreementData: row.agreement_data || {},
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -141,6 +153,7 @@ export const getLease = async (req: AuthRequest, res: Response): Promise<void> =
       documentUrl: row.document_url,
       signedDate: row.signed_date,
       notes: row.notes,
+      agreementData: row.agreement_data || {},
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -171,11 +184,13 @@ export const createLease = async (req: AuthRequest, res: Response): Promise<void
       documentUrl,
       signedDate,
       notes,
+      agreementData,
     } = req.body;
 
     // Verify unit ownership
     const unitCheck = await client.query(
-      `SELECT u.id, p.landlord_id FROM units u
+      `SELECT u.id, u.unit_number, p.landlord_id, p.name as property_name, p.address as property_address, p.city as property_city
+       FROM units u
        JOIN properties p ON u.property_id = p.id
        WHERE u.id = $1 AND p.landlord_id = $2`,
       [unitId, req.userId]
@@ -203,8 +218,8 @@ export const createLease = async (req: AuthRequest, res: Response): Promise<void
     const result = await client.query(
       `INSERT INTO leases (
         unit_id, tenant_id, start_date, end_date, rent_amount, deposit_amount,
-        payment_due_day, lease_type, status, document_url, signed_date, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        payment_due_day, lease_type, status, document_url, signed_date, notes, agreement_data
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *`,
       [
         unitId,
@@ -219,10 +234,44 @@ export const createLease = async (req: AuthRequest, res: Response): Promise<void
         documentUrl || null,
         signedDate || null,
         notes || null,
+        agreementData || {},
       ]
     );
 
     const lease = result.rows[0];
+
+    const unitMeta = unitCheck.rows[0];
+    const propertyLabel = unitMeta?.property_name
+      ? `${unitMeta.property_name} - Unit ${unitMeta.unit_number ?? ''}`.trim()
+      : 'Lease Agreement';
+
+    const leaseTitle = `Lease Agreement: ${propertyLabel}`.trim();
+
+    // Always insert an explicit document record matching this lease issuance
+    await client.query(
+      `INSERT INTO tenant_documents (tenant_id, type, title, description, file_url)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        tenantId,
+        'lease',
+        leaseTitle,
+        notes || 'Digital lease agreement — please review and sign.',
+        documentUrl || '',
+      ]
+    );
+
+    // Notify the tenant
+    await client.query(
+      `INSERT INTO tenant_notifications (tenant_id, type, title, message, link)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        tenantId,
+        'lease',
+        'New Lease Issued',
+        `A new lease has been issued for ${propertyLabel}. Please review and sign.`,
+        '/tenancy/lease',
+      ]
+    );
 
     // Update unit status to occupied if lease is active
     if (lease.status === 'active') {
@@ -251,14 +300,15 @@ export const createLease = async (req: AuthRequest, res: Response): Promise<void
         rentAmount: parseFloat(lease.rent_amount),
         depositAmount: parseFloat(lease.deposit_amount),
         paymentDueDay: lease.payment_due_day,
-        leaseType: lease.lease_type,
-        status: lease.status,
-        documentUrl: lease.document_url,
-        signedDate: lease.signed_date,
-        notes: lease.notes,
-        createdAt: lease.created_at,
-        updatedAt: lease.updated_at,
-      },
+      leaseType: lease.lease_type,
+      status: lease.status,
+      documentUrl: lease.document_url,
+      signedDate: lease.signed_date,
+      notes: lease.notes,
+      agreementData: lease.agreement_data || {},
+      createdAt: lease.created_at,
+      updatedAt: lease.updated_at,
+    },
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -266,6 +316,27 @@ export const createLease = async (req: AuthRequest, res: Response): Promise<void
     res.status(500).json({ error: 'Failed to create lease' });
   } finally {
     client.release();
+  }
+};
+
+export const uploadLeaseDocument = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const file = (req as AuthRequest & { file?: { filename: string; originalname: string } }).file;
+    if (!file) {
+      res.status(400).json({ error: 'Lease file is required' });
+      return;
+    }
+
+    ensureUploadDir();
+
+    const relativePath = path.posix.join('leases', file.filename);
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const url = `${baseUrl}/uploads/${relativePath}`;
+
+    res.status(201).json({ url, fileName: file.originalname });
+  } catch (error) {
+    console.error('Upload lease document error:', error);
+    res.status(500).json({ error: 'Failed to upload lease document' });
   }
 };
 
@@ -284,6 +355,7 @@ export const updateLease = async (req: AuthRequest, res: Response): Promise<void
       documentUrl,
       signedDate,
       notes,
+      agreementData,
     } = req.body;
 
     // Verify ownership
@@ -311,8 +383,9 @@ export const updateLease = async (req: AuthRequest, res: Response): Promise<void
         status = COALESCE($7, status),
         document_url = COALESCE($8, document_url),
         signed_date = COALESCE($9, signed_date),
-        notes = COALESCE($10, notes)
-       WHERE id = $11
+        notes = COALESCE($10, notes),
+        agreement_data = COALESCE($11, agreement_data)
+       WHERE id = $12
        RETURNING *`,
       [
         startDate,
@@ -325,6 +398,7 @@ export const updateLease = async (req: AuthRequest, res: Response): Promise<void
         documentUrl,
         signedDate,
         notes,
+        agreementData || null,
         id,
       ]
     );
@@ -343,13 +417,14 @@ export const updateLease = async (req: AuthRequest, res: Response): Promise<void
         depositAmount: parseFloat(lease.deposit_amount),
         paymentDueDay: lease.payment_due_day,
         leaseType: lease.lease_type,
-        status: lease.status,
-        documentUrl: lease.document_url,
-        signedDate: lease.signed_date,
-        notes: lease.notes,
-        createdAt: lease.created_at,
-        updatedAt: lease.updated_at,
-      },
+      status: lease.status,
+      documentUrl: lease.document_url,
+      signedDate: lease.signed_date,
+      notes: lease.notes,
+      agreementData: lease.agreement_data || {},
+      createdAt: lease.created_at,
+      updatedAt: lease.updated_at,
+    },
     });
   } catch (error) {
     console.error('Update lease error:', error);

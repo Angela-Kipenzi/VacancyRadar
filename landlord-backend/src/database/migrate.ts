@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS properties (
   city VARCHAR(100) NOT NULL,
   state VARCHAR(50) NOT NULL,
   zip_code VARCHAR(20) NOT NULL,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
   property_type VARCHAR(50) NOT NULL CHECK (property_type IN ('apartment', 'house', 'condo', 'townhouse', 'other')),
   year_built INTEGER,
   total_units INTEGER NOT NULL DEFAULT 1,
@@ -69,6 +71,7 @@ CREATE TABLE IF NOT EXISTS tenants (
   password VARCHAR(255),
   emergency_contact_name VARCHAR(255),
   emergency_contact_phone VARCHAR(20),
+  profile_photo_url TEXT,
   move_in_date DATE,
   move_out_date DATE,
   status VARCHAR(50) NOT NULL CHECK (status IN ('active', 'inactive', 'past')),
@@ -80,6 +83,7 @@ CREATE TABLE IF NOT EXISTS tenants (
 -- Ensure tenant auth columns/constraints exist on existing databases
 ALTER TABLE tenants ALTER COLUMN landlord_id DROP NOT NULL;
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS password VARCHAR(255);
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS profile_photo_url TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_email_unique ON tenants(email);
 
 -- Applications Table
@@ -130,11 +134,14 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS tenant_id UUID REFERENCES tena
 ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_status_check;
 ALTER TABLE applications ADD CONSTRAINT applications_status_check CHECK (status IN ('pending', 'under_review', 'approved', 'rejected', 'withdrawn'));
 
+ALTER TABLE leases ADD COLUMN IF NOT EXISTS agreement_data JSONB DEFAULT '{}'::jsonb;
+
 -- Payments Table (Tenant-facing)
 CREATE TABLE IF NOT EXISTS payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   lease_id UUID REFERENCES leases(id) ON DELETE SET NULL,
+  payment_type VARCHAR(20) NOT NULL DEFAULT 'rent' CHECK (payment_type IN ('rent', 'deposit')),
   amount DECIMAL(10, 2) NOT NULL,
   currency VARCHAR(10) NOT NULL DEFAULT 'USD',
   due_date DATE NOT NULL,
@@ -145,6 +152,10 @@ CREATE TABLE IF NOT EXISTS payments (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS payment_type VARCHAR(20) NOT NULL DEFAULT 'rent';
+ALTER TABLE payments DROP CONSTRAINT IF EXISTS payments_payment_type_check;
+ALTER TABLE payments ADD CONSTRAINT payments_payment_type_check CHECK (payment_type IN ('rent', 'deposit'));
 
 -- Payment Methods (Tenant-facing)
 CREATE TABLE IF NOT EXISTS payment_methods (
@@ -170,9 +181,34 @@ CREATE TABLE IF NOT EXISTS payment_transactions (
   currency VARCHAR(10) NOT NULL DEFAULT 'USD',
   status VARCHAR(50) NOT NULL CHECK (status IN ('paid', 'pending', 'failed')),
   method_id UUID REFERENCES payment_methods(id) ON DELETE SET NULL,
+  payment_id UUID REFERENCES payments(id) ON DELETE SET NULL,
+  purpose VARCHAR(20) CHECK (purpose IN ('rent', 'deposit')),
+  provider VARCHAR(100),
+  phone VARCHAR(50),
+  checkout_request_id VARCHAR(255),
+  merchant_request_id VARCHAR(255),
+  mpesa_receipt VARCHAR(255),
+  mpesa_result_code INTEGER,
+  mpesa_result_desc TEXT,
+  metadata JSONB DEFAULT '{}'::jsonb,
   description TEXT NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  completed_at TIMESTAMP
 );
+
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS payment_id UUID REFERENCES payments(id) ON DELETE SET NULL;
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS purpose VARCHAR(20);
+ALTER TABLE payment_transactions DROP CONSTRAINT IF EXISTS payment_transactions_purpose_check;
+ALTER TABLE payment_transactions ADD CONSTRAINT payment_transactions_purpose_check CHECK (purpose IN ('rent', 'deposit'));
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS provider VARCHAR(100);
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS phone VARCHAR(50);
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS checkout_request_id VARCHAR(255);
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS merchant_request_id VARCHAR(255);
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS mpesa_receipt VARCHAR(255);
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS mpesa_result_code INTEGER;
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS mpesa_result_desc TEXT;
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE payment_transactions ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP;
 
 -- Maintenance Requests Table (Tenant-facing)
 CREATE TABLE IF NOT EXISTS maintenance_requests (
@@ -276,8 +312,32 @@ CREATE TABLE IF NOT EXISTS notifications (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Tenant Notifications Table
+CREATE TABLE IF NOT EXISTS tenant_notifications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL CHECK (type IN ('lease', 'maintenance', 'payment', 'general')),
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  is_read BOOLEAN DEFAULT FALSE,
+  link TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+-- Media columns for properties & units
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS photos JSONB DEFAULT '[]';
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS virtual_tour_url TEXT;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS video_tour_url TEXT;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+
+ALTER TABLE units ADD COLUMN IF NOT EXISTS virtual_tour_url TEXT;
+ALTER TABLE units ADD COLUMN IF NOT EXISTS video_tour_url TEXT;
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_properties_landlord ON properties(landlord_id);
+CREATE INDEX IF NOT EXISTS idx_properties_coordinates ON properties(latitude, longitude);
 CREATE INDEX IF NOT EXISTS idx_units_property ON units(property_id);
 CREATE INDEX IF NOT EXISTS idx_units_status ON units(status);
 CREATE INDEX IF NOT EXISTS idx_applications_unit ON applications(unit_id);
@@ -289,9 +349,12 @@ CREATE INDEX IF NOT EXISTS idx_leases_status ON leases(status);
 CREATE INDEX IF NOT EXISTS idx_tenants_landlord ON tenants(landlord_id);
 CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_payments_lease ON payments(lease_id);
+CREATE INDEX IF NOT EXISTS idx_payments_payment_type ON payments(payment_type);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_tenant ON payment_methods(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_payment_transactions_tenant ON payment_transactions(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_payment_transactions_method ON payment_transactions(method_id);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_payment ON payment_transactions(payment_id);
+CREATE INDEX IF NOT EXISTS idx_payment_transactions_checkout_request ON payment_transactions(checkout_request_id);
 CREATE INDEX IF NOT EXISTS idx_maintenance_tenant ON maintenance_requests(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_maintenance_status ON maintenance_requests(status);
 CREATE INDEX IF NOT EXISTS idx_documents_tenant ON tenant_documents(tenant_id);
@@ -302,6 +365,8 @@ CREATE INDEX IF NOT EXISTS idx_qr_codes_unit ON qr_codes(unit_id);
 CREATE INDEX IF NOT EXISTS idx_qr_scans_qr_code ON qr_scans(qr_code_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_tenant_notifications_tenant ON tenant_notifications(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_notifications_is_read ON tenant_notifications(is_read);
 
 -- Triggers for updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()

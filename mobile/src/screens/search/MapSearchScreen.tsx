@@ -4,10 +4,20 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   TextInput,
   Modal,
+  Alert,
 } from 'react-native';
+import {
+  Camera,
+  FillLayer,
+  LineLayer,
+  MapView,
+  PointAnnotation,
+  ShapeSource,
+  type CameraRef,
+} from '@maplibre/maplibre-react-native';
+import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../../components/common/Card';
 import { colors } from '../../theme/colors';
@@ -18,62 +28,91 @@ import { PropertyListing } from '../../types';
 
 type MapType = 'street' | 'satellite' | 'hybrid';
 
-interface ClusterItem {
-  id: string;
-  properties: PropertyListing[];
-  mapX: number;
-  mapY: number;
-}
-
 const MAP_TYPES: MapType[] = ['street', 'satellite', 'hybrid'];
-
-const getPinColor = (status: PropertyListing['status'], isSaved: boolean) => {
-  if (isSaved) return colors.info;
-  if (status === 'available') return colors.success;
-  if (status === 'pending') return colors.warning;
-  return colors.gray[400];
+const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY || '';
+const HAS_MAPTILER_KEY = MAPTILER_KEY.trim().length > 0;
+const EARTH_RADIUS_KM = 6371;
+const LISTING_COLORS = {
+  vacant: '#00C853',
+  pending: '#FF6D00',
+  occupied: '#D50000',
+  saved: '#0057FF',
 };
 
-const clusterProperties = (properties: PropertyListing[], zoomLevel: number) => {
-  const threshold = zoomLevel === 1 ? 0.12 : zoomLevel === 2 ? 0.08 : 0.05;
-  const remaining = [...properties];
-  const clusters: ClusterItem[] = [];
+const DEFAULT_CENTER: [number, number] = [36.817223, -1.286389]; // Nairobi [lng, lat]
+const DEFAULT_ZOOM = 11;
 
-  while (remaining.length) {
-    const seed = remaining.shift()!;
-    const group = [seed];
+const hasValidCoordinates = (property: PropertyListing) => {
+  const { lat, lng } = property.location;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  if (lat === 0 && lng === 0) return false;
+  return true;
+};
 
-    for (let i = remaining.length - 1; i >= 0; i -= 1) {
-      const candidate = remaining[i];
-      const dx = seed.location.mapX - candidate.location.mapX;
-      const dy = seed.location.mapY - candidate.location.mapY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      if (distance < threshold) {
-        group.push(candidate);
-        remaining.splice(i, 1);
-      }
-    }
+const styleUrlForType = (mapType: MapType, key: string) => {
+  const styleId =
+    mapType === 'satellite' ? 'satellite' : mapType === 'hybrid' ? 'hybrid' : 'streets-v2';
+  return `https://api.maptiler.com/maps/${styleId}/style.json?key=${key}`;
+};
 
-    if (group.length === 1) {
-      clusters.push({
-        id: seed.id,
-        properties: group,
-        mapX: seed.location.mapX,
-        mapY: seed.location.mapY,
-      });
-    } else {
-      const avgX = group.reduce((sum, item) => sum + item.location.mapX, 0) / group.length;
-      const avgY = group.reduce((sum, item) => sum + item.location.mapY, 0) / group.length;
-      clusters.push({
-        id: `cluster-${seed.id}`,
-        properties: group,
-        mapX: avgX,
-        mapY: avgY,
-      });
-    }
+const toRadians = (value: number) => (value * Math.PI) / 180;
+const toDegrees = (value: number) => (value * 180) / Math.PI;
+
+const destinationPoint = (
+  originLat: number,
+  originLng: number,
+  bearingDegrees: number,
+  distanceKm: number
+) => {
+  const angularDistance = distanceKm / EARTH_RADIUS_KM;
+  const bearing = toRadians(bearingDegrees);
+  const lat1 = toRadians(originLat);
+  const lng1 = toRadians(originLng);
+
+  const lat2 = Math.asin(
+    Math.sin(lat1) * Math.cos(angularDistance) +
+      Math.cos(lat1) * Math.sin(angularDistance) * Math.cos(bearing)
+  );
+  const lng2 =
+    lng1 +
+    Math.atan2(
+      Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat1),
+      Math.cos(angularDistance) - Math.sin(lat1) * Math.sin(lat2)
+    );
+
+  return {
+    lat: toDegrees(lat2),
+    lng: toDegrees(lng2),
+  };
+};
+
+const buildSearchAreaPolygon = (centerLat: number, centerLng: number, radiusKm: number) => {
+  const steps = 64;
+  const ring: [number, number][] = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const bearing = (i / steps) * 360;
+    const point = destinationPoint(centerLat, centerLng, bearing, radiusKm);
+    ring.push([point.lng, point.lat]);
   }
 
-  return clusters;
+  return {
+    type: 'Feature',
+    geometry: {
+      type: 'Polygon',
+      coordinates: [ring],
+    },
+    properties: {
+      radiusKm,
+    },
+  } as GeoJSON.Feature<GeoJSON.Polygon>;
+};
+
+const getPinColor = (status: PropertyListing['status'], isSaved: boolean) => {
+  if (isSaved) return LISTING_COLORS.saved;
+  if (status === 'available') return LISTING_COLORS.vacant;
+  if (status === 'pending') return LISTING_COLORS.pending;
+  return LISTING_COLORS.occupied;
 };
 
 export const MapSearchScreen = ({ navigation }: any) => {
@@ -84,15 +123,55 @@ export const MapSearchScreen = ({ navigation }: any) => {
     saveSearch,
     recordViewedProperty,
   } = useSearch();
-  const { listings, loading, refreshListings } = useListings();
+  const { listings, loading, error, refreshListings } = useListings();
+  const cameraRef = useRef<CameraRef | null>(null);
+  const locationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const markersSignatureRef = useRef('');
+
   const [mapType, setMapType] = useState<MapType>('street');
-  const [zoomLevel, setZoomLevel] = useState(2);
   const [selectedProperty, setSelectedProperty] = useState<PropertyListing | null>(null);
-  const [selectedCluster, setSelectedCluster] = useState<PropertyListing[] | null>(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [showLocationNote, setShowLocationNote] = useState(false);
-  const locationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [searchAreaCenter, setSearchAreaCenter] = useState<{ lat: number; lng: number }>({
+    lat: DEFAULT_CENTER[1],
+    lng: DEFAULT_CENTER[0],
+  });
+
+  const filteredProperties = useMemo(
+    () => listings.filter((property) => matchesFilters(property, filters)),
+    [filters, listings]
+  );
+
+  const mappableProperties = useMemo(
+    () => filteredProperties.filter(hasValidCoordinates),
+    [filteredProperties]
+  );
+
+  const mapStyle = useMemo(() => styleUrlForType(mapType, MAPTILER_KEY), [mapType]);
+  const searchRadiusKm = useMemo(() => {
+    if (typeof filters.radiusKm === 'number' && filters.radiusKm > 0) {
+      return filters.radiusKm;
+    }
+    if (filters.drawAreaEnabled) {
+      return 2;
+    }
+    return null;
+  }, [filters.drawAreaEnabled, filters.radiusKm]);
+  const searchAreaShape = useMemo(() => {
+    if (!searchRadiusKm) return null;
+    return buildSearchAreaPolygon(searchAreaCenter.lat, searchAreaCenter.lng, searchRadiusKm);
+  }, [searchAreaCenter.lat, searchAreaCenter.lng, searchRadiusKm]);
+
+  useEffect(() => {
+    if (!selectedProperty) return;
+    const stillVisible = filteredProperties.some((item) => item.id === selectedProperty.id);
+    if (!stillVisible) {
+      setSelectedProperty(null);
+    }
+  }, [filteredProperties, selectedProperty]);
 
   useEffect(() => {
     return () => {
@@ -102,24 +181,44 @@ export const MapSearchScreen = ({ navigation }: any) => {
     };
   }, []);
 
-  const filteredProperties = useMemo(
-    () => listings.filter((property) => matchesFilters(property, filters)),
-    [filters, listings]
-  );
+  useEffect(() => {
+    if (!HAS_MAPTILER_KEY) return;
 
-  const clusters = useMemo(
-    () => clusterProperties(filteredProperties, zoomLevel),
-    [filteredProperties, zoomLevel]
-  );
+    const markerSignature = mappableProperties.map((property) => property.id).join('|');
+    if (!markerSignature || markerSignature === markersSignatureRef.current) {
+      return;
+    }
+
+    markersSignatureRef.current = markerSignature;
+
+    if (mappableProperties.length === 1) {
+      const property = mappableProperties[0];
+      setSearchAreaCenter({ lat: property.location.lat, lng: property.location.lng });
+      cameraRef.current?.setCamera({
+        centerCoordinate: [property.location.lng, property.location.lat],
+        zoomLevel: Math.max(12, filters.radiusKm ? 14 - filters.radiusKm * 0.3 : 13),
+        animationDuration: 600,
+        animationMode: 'easeTo',
+      });
+      return;
+    }
+
+    const latitudes = mappableProperties.map((item) => item.location.lat);
+    const longitudes = mappableProperties.map((item) => item.location.lng);
+    const ne: [number, number] = [Math.max(...longitudes), Math.max(...latitudes)];
+    const sw: [number, number] = [Math.min(...longitudes), Math.min(...latitudes)];
+    cameraRef.current?.fitBounds(ne, sw, 80, 700);
+  }, [filters.radiusKm, mappableProperties]);
 
   const handleSelectProperty = (property: PropertyListing) => {
-    setSelectedCluster(null);
     setSelectedProperty(property);
-  };
-
-  const handleSelectCluster = (properties: PropertyListing[]) => {
-    setSelectedProperty(null);
-    setSelectedCluster(properties);
+    setSearchAreaCenter({ lat: property.location.lat, lng: property.location.lng });
+    cameraRef.current?.setCamera({
+      centerCoordinate: [property.location.lng, property.location.lat],
+      zoomLevel: Math.max(13, filters.radiusKm ? 14 - filters.radiusKm * 0.3 : 13),
+      animationDuration: 450,
+      animationMode: 'easeTo',
+    });
   };
 
   const handleOpenDetails = (property: PropertyListing) => {
@@ -134,14 +233,47 @@ export const MapSearchScreen = ({ navigation }: any) => {
     setShowSaveModal(false);
   };
 
-  const handleLocate = () => {
-    setShowLocationNote(true);
-    if (locationTimeoutRef.current) {
-      clearTimeout(locationTimeoutRef.current);
+  const handleLocate = async () => {
+    try {
+      setLocating(true);
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Location permission', 'Enable location to center the map on your current position.');
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const lng = position.coords.longitude;
+      const lat = position.coords.latitude;
+
+      if (!mapReady || !cameraRef.current) {
+        Alert.alert('Map loading', 'Please wait for the map to finish loading, then try again.');
+        return;
+      }
+
+      setSearchAreaCenter({ lat, lng });
+      cameraRef.current?.setCamera({
+        centerCoordinate: [lng, lat],
+        zoomLevel: 14,
+        animationDuration: 700,
+        animationMode: 'easeTo',
+      });
+
+      setShowLocationNote(true);
+      if (locationTimeoutRef.current) {
+        clearTimeout(locationTimeoutRef.current);
+      }
+      locationTimeoutRef.current = setTimeout(() => {
+        setShowLocationNote(false);
+      }, 1600);
+    } catch (locError) {
+      console.error('Current location error:', locError);
+      Alert.alert('Location error', 'Unable to read your location right now.');
+    } finally {
+      setLocating(false);
     }
-    locationTimeoutRef.current = setTimeout(() => {
-      setShowLocationNote(false);
-    }, 1600);
   };
 
   return (
@@ -152,7 +284,7 @@ export const MapSearchScreen = ({ navigation }: any) => {
           onPress={() => navigation.navigate('SearchFilters')}
         >
           <Ionicons name="search" size={18} color={colors.textSecondary} />
-          <Text style={styles.searchPlaceholder}>Search city, neighborhood</Text>
+          <Text style={styles.searchPlaceholder}>Search county, town</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.filterButton}
@@ -171,119 +303,153 @@ export const MapSearchScreen = ({ navigation }: any) => {
           <Ionicons name={loading ? 'reload-circle' : 'refresh'} size={18} color={colors.primary} />
         </TouchableOpacity>
       </View>
-      <View style={styles.legendRow}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.success }]} />
-          <Text style={styles.legendText}>Available</Text>
+
+      <Card style={styles.legendCard} padding={12}>
+        <Text style={styles.legendTitle}>Map Guide</Text>
+        <View style={styles.legendRow}>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: LISTING_COLORS.vacant }]} />
+            <Text style={styles.legendText}>Vacant</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: LISTING_COLORS.occupied }]} />
+            <Text style={styles.legendText}>Occupied</Text>
+          </View>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: LISTING_COLORS.pending }]} />
+            <Text style={styles.legendText}>Vacating/Pending</Text>
+          </View>
+          {searchRadiusKm ? (
+            <View style={styles.legendItem}>
+              <View style={[styles.legendAreaDot]} />
+              <Text style={styles.legendText}>
+                Search Area ({searchRadiusKm.toFixed(0)}km)
+              </Text>
+            </View>
+          ) : null}
         </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.gray[400] }]} />
-          <Text style={styles.legendText}>Occupied</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.warning }]} />
-          <Text style={styles.legendText}>Pending</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: colors.info }]} />
-          <Text style={styles.legendText}>Saved</Text>
-        </View>
-      </View>
+      </Card>
 
       <View style={styles.mapContainer}>
-        <View
-          style={[
-            styles.mapSurface,
-            mapType === 'satellite' && styles.mapSatellite,
-            mapType === 'hybrid' && styles.mapHybrid,
-          ]}
-        >
-          <View style={styles.mapGrid} />
-          {clusters.map((cluster) => {
-            const isCluster = cluster.properties.length > 1;
-            const displayProperty = cluster.properties[0];
-            const isSaved = displayProperty
-              ? savedPropertyIds.includes(displayProperty.id)
-              : false;
-            const color = getPinColor(displayProperty.status, isSaved);
-            return (
-              <TouchableOpacity
-                key={cluster.id}
-                style={[
-                  styles.pin,
-                  {
-                    backgroundColor: color,
-                    left: `${cluster.mapX * 100}%`,
-                    top: `${cluster.mapY * 100}%`,
-                  },
-                ]}
-                onPress={() =>
-                  isCluster
-                    ? handleSelectCluster(cluster.properties)
-                    : handleSelectProperty(displayProperty)
-                }
-              >
-                {isCluster ? (
-                  <Text style={styles.clusterText}>{cluster.properties.length}</Text>
-                ) : (
-                  <View style={styles.pinDot} />
-                )}
-              </TouchableOpacity>
-            );
-          })}
+        {HAS_MAPTILER_KEY ? (
+          <View style={styles.mapWrapper}>
+            <MapView
+              style={styles.map}
+              mapStyle={mapStyle}
+              logoEnabled={false}
+              attributionEnabled={false}
+              onDidFinishLoadingMap={() => setMapReady(true)}
+              onRegionDidChange={(feature: any) => {
+                const coords = feature?.geometry?.coordinates;
+                if (!Array.isArray(coords) || coords.length < 2) return;
+                const [lng, lat] = coords;
+                if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                setSearchAreaCenter({ lat, lng });
+              }}
+              onPress={() => setSelectedProperty(null)}
+            >
+              <Camera
+                ref={(ref) => {
+                  cameraRef.current = ref;
+                }}
+                defaultSettings={{
+                  centerCoordinate: DEFAULT_CENTER,
+                  zoomLevel: DEFAULT_ZOOM,
+                }}
+              />
 
-          {!loading && clusters.length === 0 && (
-            <View style={styles.emptyOverlay}>
-              <Text style={styles.emptyText}>No listings to display.</Text>
-            </View>
-          )}
+              {searchAreaShape ? (
+                <ShapeSource id="search-area-source" shape={searchAreaShape as any}>
+                  <FillLayer
+                    id="search-area-fill"
+                    style={{
+                      fillColor: colors.primary,
+                      fillOpacity: 0.12,
+                    }}
+                  />
+                  <LineLayer
+                    id="search-area-outline"
+                    style={{
+                      lineColor: colors.primary,
+                      lineWidth: 2,
+                    }}
+                  />
+                </ShapeSource>
+              ) : null}
 
+              {mappableProperties.map((property) => {
+                const isSaved = savedPropertyIds.includes(property.id);
+                const pinColor = getPinColor(property.status, isSaved);
+                return (
+                  <PointAnnotation
+                    key={property.id}
+                    id={`property-${property.id}`}
+                    coordinate={[property.location.lng, property.location.lat]}
+                    onSelected={() => handleSelectProperty(property)}
+                  >
+                    <View style={styles.pinWrapper}>
+                      <View style={[styles.pinHalo, { borderColor: pinColor }]} />
+                      <View style={[styles.pin, { backgroundColor: pinColor }]}>
+                        <View style={styles.pinDot} />
+                      </View>
+                    </View>
+                  </PointAnnotation>
+                );
+              })}
+            </MapView>
+          </View>
+        ) : (
+          <View style={styles.mapMissingContainer}>
+            <Ionicons name="map-outline" size={30} color={colors.primary} />
+            <Text style={styles.mapMissingTitle}>MapTiler key not configured</Text>
+            <Text style={styles.mapMissingText}>
+              Set `EXPO_PUBLIC_MAPTILER_KEY` and rebuild the mobile app.
+            </Text>
+            <TouchableOpacity
+              style={styles.mapMissingButton}
+              onPress={() => navigation.navigate('PropertyList')}
+            >
+              <Text style={styles.mapMissingButtonText}>Open List View</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {HAS_MAPTILER_KEY ? (
           <View style={styles.mapControls}>
             <View style={styles.mapTypeToggle}>
               {MAP_TYPES.map((type) => (
                 <TouchableOpacity
                   key={type}
-                  style={[
-                    styles.mapTypeOption,
-                    mapType === type && styles.mapTypeOptionActive,
-                  ]}
+                  style={[styles.mapTypeOption, mapType === type && styles.mapTypeOptionActive]}
                   onPress={() => setMapType(type)}
                 >
-                  <Text
-                    style={[
-                      styles.mapTypeText,
-                      mapType === type && styles.mapTypeTextActive,
-                    ]}
-                  >
+                  <Text style={[styles.mapTypeText, mapType === type && styles.mapTypeTextActive]}>
                     {type}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <View style={styles.zoomControls}>
-              <TouchableOpacity
-                style={styles.zoomButton}
-                onPress={() => setZoomLevel((prev) => Math.min(3, prev + 1))}
-              >
-                <Ionicons name="add" size={18} color={colors.text} />
-              </TouchableOpacity>
-              <Text style={styles.zoomLabel}>Zoom {zoomLevel}</Text>
-              <TouchableOpacity
-                style={styles.zoomButton}
-                onPress={() => setZoomLevel((prev) => Math.max(1, prev - 1))}
-              >
-                <Ionicons name="remove" size={18} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-
             <TouchableOpacity style={styles.locationButton} onPress={handleLocate}>
-              <Ionicons name="locate" size={18} color={colors.white} />
-              <Text style={styles.locationText}>Current</Text>
+              <Ionicons
+                name={locating ? 'locate' : 'navigate'}
+                size={18}
+                color={colors.white}
+              />
+              <Text style={styles.locationText}>{locating ? 'Locating...' : 'Current'}</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        ) : null}
+
+        {!loading && mappableProperties.length === 0 && (
+          <View style={styles.emptyOverlay}>
+            <Text style={styles.emptyText}>
+              {error ?? 'No mappable listings for your current filters.'}
+            </Text>
+          </View>
+        )}
       </View>
+
       {showLocationNote && (
         <View style={styles.locationToast}>
           <Ionicons name="location" size={16} color={colors.white} />
@@ -291,93 +457,50 @@ export const MapSearchScreen = ({ navigation }: any) => {
         </View>
       )}
 
-      {(selectedProperty || selectedCluster) && (
-        <Card style={styles.previewCard} padding={16}>
       {selectedProperty && (
-            <>
-              <View style={styles.previewHeader}>
-                <View>
-                  <Text style={styles.previewTitle}>{selectedProperty.title}</Text>
-                  <Text style={styles.previewSubtitle}>
-                    {selectedProperty.neighborhood} · {selectedProperty.city}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => toggleSavedProperty(selectedProperty.id)}
-                  style={styles.saveButton}
-                >
-                  <Ionicons
-                    name={savedPropertyIds.includes(selectedProperty.id) ? 'heart' : 'heart-outline'}
-                    size={18}
-                    color={colors.white}
-                  />
-                </TouchableOpacity>
-              </View>
-              <View style={styles.previewPriceRow}>
-                <Text style={styles.previewPrice}>
-                  {formatCurrency(selectedProperty.price, selectedProperty.currency)}
-                </Text>
-                <Text style={styles.previewMeta}>
-                  {selectedProperty.bedrooms} bd · {selectedProperty.bathrooms} ba ·{' '}
-                  {selectedProperty.sqft} {selectedProperty.sqftUnit}
-                </Text>
-              </View>
-              <View style={styles.previewImageRow}>
-                <View style={styles.previewImage}>
-                  <Ionicons name="image" size={18} color={colors.textSecondary} />
-                  <Text style={styles.previewImageText}>Photo</Text>
-                </View>
-                <View style={styles.previewInfo}>
-                  <Text style={styles.previewInfoTitle}>Quick Preview</Text>
-                  <Text style={styles.previewInfoText}>
-                    Tap to see full details, amenities, and availability.
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.previewActions}>
-                <TouchableOpacity
-                  style={styles.previewAction}
-                  onPress={() => handleOpenDetails(selectedProperty)}
-                >
-                  <Text style={styles.previewActionText}>View Details</Text>
-                  <Ionicons name="arrow-forward" size={16} color={colors.white} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.previewAction, styles.previewSecondary]}
-                  onPress={() => navigation.navigate('SearchFilters')}
-                >
-                  <Ionicons name="options" size={16} color={colors.primary} />
-                  <Text style={styles.previewSecondaryText}>Refine</Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
-
-          {selectedCluster && (
-            <>
-              <Text style={styles.previewTitle}>
-                {selectedCluster.length} listings in this area
+        <Card style={styles.previewCard} padding={16}>
+          <View style={styles.previewHeader}>
+            <View>
+              <Text style={styles.previewTitle}>{selectedProperty.title}</Text>
+              <Text style={styles.previewSubtitle}>
+                {selectedProperty.neighborhood} - {selectedProperty.city}
               </Text>
-              <Text style={styles.previewSubtitle}>Zoom in or select a listing</Text>
-              <ScrollView style={styles.clusterList}>
-                {selectedCluster.map((property) => (
-                  <TouchableOpacity
-                    key={property.id}
-                    style={styles.clusterItem}
-                    onPress={() => handleSelectProperty(property)}
-                  >
-                    <View style={styles.clusterDot} />
-                    <View style={styles.clusterInfo}>
-                      <Text style={styles.clusterTitle}>{property.title}</Text>
-                      <Text style={styles.clusterMeta}>
-                        {formatCurrency(property.price, property.currency)} · {property.bedrooms} bd
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </>
-          )}
+            </View>
+            <TouchableOpacity
+              onPress={() => toggleSavedProperty(selectedProperty.id)}
+              style={styles.saveButton}
+            >
+              <Ionicons
+                name={savedPropertyIds.includes(selectedProperty.id) ? 'heart' : 'heart-outline'}
+                size={18}
+                color={colors.white}
+              />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.previewPriceRow}>
+            <Text style={styles.previewPrice}>
+              {formatCurrency(selectedProperty.price, selectedProperty.currency)}
+            </Text>
+            <Text style={styles.previewMeta}>
+              {selectedProperty.bedrooms} bd - {selectedProperty.bathrooms} ba
+            </Text>
+          </View>
+          <View style={styles.previewActions}>
+            <TouchableOpacity
+              style={styles.previewAction}
+              onPress={() => handleOpenDetails(selectedProperty)}
+            >
+              <Text style={styles.previewActionText}>View Details</Text>
+              <Ionicons name="arrow-forward" size={16} color={colors.white} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.previewAction, styles.previewSecondary]}
+              onPress={() => navigation.navigate('SearchFilters')}
+            >
+              <Ionicons name="options" size={16} color={colors.primary} />
+              <Text style={styles.previewSecondaryText}>Refine</Text>
+            </TouchableOpacity>
+          </View>
         </Card>
       )}
 
@@ -408,7 +531,7 @@ export const MapSearchScreen = ({ navigation }: any) => {
             <Text style={styles.modalTitle}>Save this search</Text>
             <Text style={styles.modalSubtitle}>Give your search a name to reuse it later.</Text>
             <TextInput
-              placeholder="e.g. Downtown studios"
+              placeholder="e.g. Westlands apartments"
               value={saveName}
               onChangeText={setSaveName}
               style={styles.modalInput}
@@ -489,34 +612,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  mapContainer: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+  legendCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
   },
-  emptyOverlay: {
-    position: 'absolute',
-    left: 20,
-    right: 20,
-    top: '45%',
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  emptyText: {
-    color: colors.textSecondary,
-    fontSize: 12,
+  legendTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
   },
   legendRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    paddingHorizontal: 16,
-    paddingBottom: 8,
   },
   legendItem: {
     flexDirection: 'row',
@@ -524,59 +633,108 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   legendDot: {
+    width: 13,
+    height: 13,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: colors.white,
+  },
+  legendAreaDot: {
     width: 10,
     height: 10,
-    borderRadius: 5,
+    borderRadius: 3,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + '22',
   },
   legendText: {
     fontSize: 12,
     color: colors.textSecondary,
   },
-  mapSurface: {
+  mapContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  mapWrapper: {
     flex: 1,
     borderRadius: 20,
-    backgroundColor: '#E2E8F0',
     overflow: 'hidden',
-    position: 'relative',
   },
-  mapSatellite: {
-    backgroundColor: '#1F2937',
+  map: {
+    flex: 1,
   },
-  mapHybrid: {
-    backgroundColor: '#374151',
+  pinWrapper: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  mapGrid: {
-    ...StyleSheet.absoluteFillObject,
-    borderColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 1,
-    borderStyle: 'dashed',
+  pinHalo: {
+    position: 'absolute',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    opacity: 0.35,
   },
   pin: {
-    position: 'absolute',
     width: 30,
     height: 30,
     borderRadius: 15,
+    borderWidth: 3,
+    borderColor: colors.white,
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ translateX: -15 }, { translateY: -15 }],
-    borderWidth: 2,
-    borderColor: colors.white,
+    shadowColor: colors.black,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 8,
   },
   pinDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
     backgroundColor: colors.white,
   },
-  clusterText: {
-    color: colors.white,
+  mapMissingContainer: {
+    flex: 1,
+    borderRadius: 20,
+    backgroundColor: colors.white,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    gap: 8,
+  },
+  mapMissingTitle: {
+    fontSize: 18,
     fontWeight: '700',
-    fontSize: 12,
+    color: colors.text,
+    textAlign: 'center',
+  },
+  mapMissingText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  mapMissingButton: {
+    marginTop: 8,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  mapMissingButtonText: {
+    color: colors.white,
+    fontWeight: '600',
   },
   mapControls: {
     position: 'absolute',
-    right: 12,
-    top: 12,
+    right: 24,
+    top: 20,
     alignItems: 'flex-end',
     gap: 10,
   },
@@ -604,25 +762,6 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '600',
   },
-  zoomControls: {
-    backgroundColor: colors.white,
-    borderRadius: 12,
-    padding: 8,
-    alignItems: 'center',
-    gap: 6,
-  },
-  zoomButton: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: colors.backgroundGray,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  zoomLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-  },
   locationButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -636,6 +775,24 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontSize: 12,
     fontWeight: '600',
+  },
+  emptyOverlay: {
+    position: 'absolute',
+    left: 32,
+    right: 32,
+    top: '45%',
+    backgroundColor: colors.white,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  emptyText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
   },
   locationToast: {
     position: 'absolute',
@@ -703,40 +860,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 12,
   },
-  previewImageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 12,
-  },
-  previewImage: {
-    width: 64,
-    height: 64,
-    borderRadius: 12,
-    backgroundColor: colors.backgroundGray,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-  },
-  previewImageText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
-  previewInfo: {
-    flex: 1,
-  },
-  previewInfoTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  previewInfoText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    marginTop: 4,
-  },
   previewAction: {
     flex: 1,
     backgroundColor: colors.primary,
@@ -757,34 +880,6 @@ const styles = StyleSheet.create({
   previewSecondaryText: {
     color: colors.primary,
     fontWeight: '600',
-  },
-  clusterList: {
-    marginTop: 10,
-    maxHeight: 150,
-  },
-  clusterItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingVertical: 6,
-  },
-  clusterDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.primary,
-  },
-  clusterInfo: {
-    flex: 1,
-  },
-  clusterTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  clusterMeta: {
-    fontSize: 12,
-    color: colors.textSecondary,
   },
   bottomActions: {
     flexDirection: 'row',

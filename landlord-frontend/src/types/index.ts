@@ -16,6 +16,8 @@ export interface Property {
     phone: string;
     email: string;
   };
+  virtualTourUrl?: string;
+  videoTourUrl?: string;
   createdAt: string;
 }
 
@@ -72,6 +74,42 @@ export interface Application {
   notes: string[];
 }
 
+export type YesNo = 'yes' | 'no';
+
+export interface LeaseAgreementData {
+  propertyType?: string;
+  leaseType?: 'fixed' | 'month-to-month';
+  startDate?: string;
+  endDate?: string;
+  bedrooms?: string;
+  bathrooms?: string;
+  propertyAddress?: string;
+  landlord?: string;
+  tenant?: string;
+  noticesToTenant?: string;
+  occupants?: string;
+  furnishings?: string;
+  appliances?: string;
+  monthlyRent?: string;
+  paymentMethods?: string;
+  securityDeposit?: string;
+  earlyMoveIn?: YesNo;
+  prepaidRent?: YesNo;
+  lateFee?: YesNo;
+  nsfFee?: YesNo;
+  parking?: YesNo;
+  utilitiesServices?: YesNo;
+  pets?: YesNo;
+  moveInInspection?: YesNo;
+  smokingPolicy?: YesNo;
+  rentersInsurance?: YesNo;
+  subletting?: YesNo;
+  authorizedPersons?: string;
+  leadBasedPaintDisclosure?: YesNo;
+  cosigner?: YesNo;
+  additionalTerms?: string;
+}
+
 export interface Lease {
   id: string;
   unitId: string;
@@ -81,11 +119,13 @@ export interface Lease {
   endDate: string;
   monthlyRent: number;
   securityDeposit: number;
+  leaseType?: 'fixed' | 'month-to-month';
   terms: string;
   status: 'active' | 'expired' | 'terminated' | 'pending';
   signedAt: string | null;
   signatureStatus: 'pending' | 'signed';
   documentUrl: string;
+  agreementData?: LeaseAgreementData;
   createdAt: string;
 }
 

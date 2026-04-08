@@ -7,6 +7,9 @@ import {
   TouchableOpacity,
   Modal,
   useWindowDimensions,
+  Alert,
+  Linking,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
@@ -16,27 +19,16 @@ import { useListings } from '../../contexts/ListingsContext';
 import { formatCurrency } from '../../utils/search';
 
 const amenityIconMap: Record<string, keyof typeof Ionicons.glyphMap> = {
-  parking_street: 'car-outline',
-  parking_garage: 'car-sport-outline',
-  parking_dedicated: 'car',
-  laundry_in_unit: 'shirt-outline',
-  laundry_building: 'shirt',
-  laundry_none: 'close-circle-outline',
-  air_conditioning: 'snow-outline',
-  heating: 'flame-outline',
-  pet_cats: 'paw-outline',
-  pet_dogs: 'paw',
-  pet_both: 'paw',
-  pet_none: 'close-circle-outline',
-  furnished: 'bed-outline',
-  unfurnished: 'bed',
-  balcony: 'sunny-outline',
-  gym: 'barbell-outline',
-  pool: 'water-outline',
-  elevator: 'arrow-up-outline',
-  wheelchair: 'accessibility-outline',
-  security: 'shield-checkmark-outline',
-  storage: 'cube-outline',
+  Parking: 'car-outline',
+  Laundry: 'shirt-outline',
+  Gym: 'barbell-outline',
+  Pool: 'water-outline',
+  Security: 'shield-checkmark-outline',
+  Elevator: 'arrow-up-outline',
+  'Rooftop Deck': 'sunny-outline',
+  Storage: 'cube-outline',
+  'Pet Friendly': 'paw-outline',
+  Concierge: 'person-outline',
 };
 
 const neighborhoodInsights = [
@@ -114,18 +106,25 @@ export const PropertyDetailsScreen = ({ route, navigation }: any) => {
             }}
             scrollEventThrottle={16}
           >
-            {galleryItems.map((imageId, index) => (
+            {galleryItems.map((imageId, index) => {
+              const isRealUrl = typeof imageId === 'string' && (imageId.startsWith('http') || imageId.startsWith('/uploads'));
+              return (
               <TouchableOpacity
-                key={imageId}
+                key={imageId + '-' + index}
                 style={[styles.galleryCard, { width: galleryWidth }]}
                 onPress={() => setGalleryOpen(true)}
               >
+                {isRealUrl ? (
+                  <Image source={{ uri: imageId }} style={styles.galleryImage} resizeMode="cover" />
+                ) : (
                 <View style={styles.galleryPlaceholder}>
                   <Ionicons name="image-outline" size={36} color={colors.textSecondary} />
                   <Text style={styles.galleryLabel}>Photo {index + 1}</Text>
                 </View>
+                )}
               </TouchableOpacity>
-            ))}
+              );
+            })}
           </ScrollView>
           <View style={styles.galleryOverlay}>
             <View style={styles.galleryBadge}>
@@ -267,7 +266,7 @@ export const PropertyDetailsScreen = ({ route, navigation }: any) => {
                   size={16}
                   color={colors.primary}
                 />
-                <Text style={styles.amenityText}>{amenity.replace(/_/g, ' ')}</Text>
+                <Text style={styles.amenityText}>{amenity}</Text>
               </View>
             ))}
           </View>
@@ -316,18 +315,39 @@ export const PropertyDetailsScreen = ({ route, navigation }: any) => {
         <Card style={styles.sectionCard} padding={16}>
           <Text style={styles.sectionTitle}>Virtual Tour</Text>
           <View style={styles.virtualGrid}>
-            <View style={styles.virtualCard}>
-              <Ionicons name="cube-outline" size={22} color={colors.primary} />
-              <Text style={styles.virtualText}>360 Viewer</Text>
-            </View>
-            <View style={styles.virtualCard}>
-              <Ionicons name="videocam-outline" size={22} color={colors.primary} />
-              <Text style={styles.virtualText}>Video Walkthrough</Text>
-            </View>
-            <View style={styles.virtualCard}>
-              <Ionicons name="map-outline" size={22} color={colors.primary} />
-              <Text style={styles.virtualText}>Floor Plan</Text>
-            </View>
+            <TouchableOpacity style={styles.virtualCard} onPress={() => {
+              if (property.virtualTourUrl) {
+                Linking.openURL(property.virtualTourUrl);
+              } else {
+                Alert.alert('360 Viewer', 'No 360° tour available for this property yet.');
+              }
+            }}>
+              <Ionicons name="cube-outline" size={22} color={property.virtualTourUrl ? colors.primary : colors.gray[400]} />
+              <Text style={[styles.virtualText, property.virtualTourUrl && styles.virtualTextActive]}>360 Viewer</Text>
+              {property.virtualTourUrl && <View style={styles.virtualAvailableDot} />}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.virtualCard} onPress={() => {
+              if (property.videoTourUrl) {
+                Linking.openURL(property.videoTourUrl);
+              } else {
+                Alert.alert('Video Walkthrough', 'No walkthrough video available for this property yet.');
+              }
+            }}>
+              <Ionicons name="videocam-outline" size={22} color={property.videoTourUrl ? colors.primary : colors.gray[400]} />
+              <Text style={[styles.virtualText, property.videoTourUrl && styles.virtualTextActive]}>Video Walkthrough</Text>
+              {property.videoTourUrl && <View style={styles.virtualAvailableDot} />}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.virtualCard} onPress={() => {
+              if (property.floorPlanUrl) {
+                Linking.openURL(property.floorPlanUrl);
+              } else {
+                Alert.alert('Floor Plan', 'No floor plan available for this property yet.');
+              }
+            }}>
+              <Ionicons name="map-outline" size={22} color={property.floorPlanUrl ? colors.primary : colors.gray[400]} />
+              <Text style={[styles.virtualText, property.floorPlanUrl && styles.virtualTextActive]}>Floor Plan</Text>
+              {property.floorPlanUrl && <View style={styles.virtualAvailableDot} />}
+            </TouchableOpacity>
           </View>
         </Card>
 
@@ -344,39 +364,55 @@ export const PropertyDetailsScreen = ({ route, navigation }: any) => {
         <Card style={styles.sectionCard} padding={16}>
           <Text style={styles.sectionTitle}>Property Actions</Text>
           <View style={styles.actionGrid}>
-            <TouchableOpacity style={styles.actionTile}>
+            <TouchableOpacity style={styles.actionTile} onPress={() => Alert.alert('Message', 'Messaging feature coming soon.')}>
               <Ionicons name="chatbubble-ellipses-outline" size={18} color={colors.primary} />
               <Text style={styles.actionTileText}>Message</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
+            <TouchableOpacity style={styles.actionTile} onPress={() => {
+              if (property.landlordPhone) {
+                Linking.openURL(`tel:${property.landlordPhone}`);
+              } else {
+                Alert.alert('Call', 'No phone number available.');
+              }
+            }}>
               <Ionicons name="call-outline" size={18} color={colors.primary} />
               <Text style={styles.actionTileText}>Call</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
+            <TouchableOpacity style={styles.actionTile} onPress={() => {
+              if (property.landlordEmail) {
+                Linking.openURL(`mailto:${property.landlordEmail}`);
+              } else {
+                Alert.alert('Email', 'No email available.');
+              }
+            }}>
               <Ionicons name="mail-outline" size={18} color={colors.primary} />
               <Text style={styles.actionTileText}>Email</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
-              <Ionicons name="share-outline" size={18} color={colors.primary} />
-              <Text style={styles.actionTileText}>Share</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
+            <TouchableOpacity style={styles.actionTile} onPress={() => {
+              if (property.landlordPhone) {
+                Linking.openURL(`https://wa.me/${property.landlordPhone.replace(/\D/g, '')}`);
+              } else {
+                Alert.alert('WhatsApp', 'No WhatsApp number available.');
+              }
+            }}>
               <Ionicons name="logo-whatsapp" size={18} color={colors.primary} />
               <Text style={styles.actionTileText}>WhatsApp</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
+            <TouchableOpacity style={styles.actionTile} onPress={() => {
+              if (property.landlordPhone) {
+                Linking.openURL(`sms:${property.landlordPhone}`);
+              } else {
+                Alert.alert('SMS', 'No phone number available.');
+              }
+            }}>
               <Ionicons name="chatbox-outline" size={18} color={colors.primary} />
               <Text style={styles.actionTileText}>SMS</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
-              <Ionicons name="link-outline" size={18} color={colors.primary} />
-              <Text style={styles.actionTileText}>Copy Link</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
+            <TouchableOpacity style={styles.actionTile} onPress={() => Alert.alert('Social', 'Social media sharing coming soon.')}>
               <Ionicons name="share-social-outline" size={18} color={colors.primary} />
               <Text style={styles.actionTileText}>Social</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.actionTile}>
+            <TouchableOpacity style={styles.actionTile} onPress={() => Alert.alert('Reported', 'Listing has been flagged for review.')}>
               <Ionicons name="flag-outline" size={18} color={colors.error} />
               <Text style={[styles.actionTileText, styles.reportText]}>Report Listing</Text>
             </TouchableOpacity>
@@ -394,8 +430,23 @@ export const PropertyDetailsScreen = ({ route, navigation }: any) => {
               </TouchableOpacity>
             </View>
             <View style={styles.modalBody}>
-              <Ionicons name="expand-outline" size={22} color={colors.white} />
-              <Text style={styles.modalText}>Pinch to zoom</Text>
+              {galleryItems.length > 0 && (() => {
+                const currentImg = galleryItems[galleryIndex] || galleryItems[0];
+                const isReal = typeof currentImg === 'string' && (currentImg.startsWith('http') || currentImg.startsWith('/uploads'));
+                return isReal ? (
+                  <Image source={{ uri: currentImg }} style={styles.modalImage} resizeMode="contain" />
+                ) : (
+                  <>
+                    <Ionicons name="expand-outline" size={22} color={colors.white} />
+                    <Text style={styles.modalText}>Pinch to zoom</Text>
+                  </>
+                );
+              })()}
+            </View>
+            <View style={styles.modalPagination}>
+              {galleryItems.map((_, idx) => (
+                <View key={idx} style={[styles.paginationDot, idx === galleryIndex && styles.paginationDotActive]} />
+              ))}
             </View>
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.modalActionButton}>
@@ -810,5 +861,42 @@ const styles = StyleSheet.create({
   emptyText: {
     padding: 16,
     color: colors.textSecondary,
+  },
+  galleryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  virtualTextActive: {
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  virtualAvailableDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.success,
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  modalPagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  paginationDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  paginationDotActive: {
+    backgroundColor: colors.white,
   },
 });

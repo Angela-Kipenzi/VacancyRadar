@@ -9,6 +9,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (data: RegisterData) => Promise<void>;
+  updateProfile: (data: Partial<Pick<User, 'firstName' | 'lastName' | 'email' | 'phone' | 'emergencyContactName' | 'emergencyContactPhone' | 'profilePhotoUrl'>>) => Promise<User>;
 }
 
 interface RegisterData {
@@ -82,8 +83,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  const updateProfile = async (data: Partial<Pick<User, 'firstName' | 'lastName' | 'email' | 'phone' | 'emergencyContactName' | 'emergencyContactPhone' | 'profilePhotoUrl'>>) => {
+    try {
+      const response = await api.put('/tenants/me', data);
+      const updated = response.data?.tenant;
+      if (!updated) {
+        throw new Error('Profile update failed');
+      }
+      const nextUser: User = {
+        id: updated.id,
+        email: updated.email,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        phone: updated.phone,
+        emergencyContactName: updated.emergencyContactName,
+        emergencyContactPhone: updated.emergencyContactPhone,
+        profilePhotoUrl: updated.profilePhotoUrl,
+      };
+
+      await AsyncStorage.setItem('user_data', JSON.stringify(nextUser));
+      setUser(nextUser);
+      return nextUser;
+    } catch (error: any) {
+      throw new Error(error.response?.data?.error || 'Profile update failed');
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, register }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, register, updateProfile }}>
       {children}
     </AuthContext.Provider>
   );

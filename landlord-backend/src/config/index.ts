@@ -41,4 +41,17 @@ export const config = {
   qrCode: {
     baseUrl: process.env.QR_CODE_BASE_URL || 'http://localhost:3000/listing',
   },
+
+  // M-Pesa (Safaricom Daraja)
+  mpesa: {
+    enabled: process.env.MPESA_ENABLED === 'true',
+    environment: process.env.MPESA_ENV === 'production' ? 'production' : 'sandbox',
+    consumerKey: process.env.MPESA_CONSUMER_KEY || '',
+    consumerSecret: process.env.MPESA_CONSUMER_SECRET || '',
+    shortCode: process.env.MPESA_SHORTCODE || '',
+    passkey: process.env.MPESA_PASSKEY || '',
+    callbackUrl: process.env.MPESA_CALLBACK_URL || '',
+    transactionType: process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline',
+    accountReference: process.env.MPESA_ACCOUNT_REFERENCE || 'Rent Payment',
+  },
 };

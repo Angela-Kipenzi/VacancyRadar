@@ -58,6 +58,8 @@ export const getUnits = async (req: AuthRequest, res: Response): Promise<void> =
       photos: row.photos,
       amenities: row.amenities,
       description: row.description,
+      virtualTourUrl: row.virtual_tour_url,
+      videoTourUrl: row.video_tour_url,
       tenant: row.tenant_first_name ? {
         firstName: row.tenant_first_name,
         lastName: row.tenant_last_name,
@@ -117,6 +119,8 @@ export const getUnit = async (req: AuthRequest, res: Response): Promise<void> =>
       photos: row.photos,
       amenities: row.amenities,
       description: row.description,
+      virtualTourUrl: row.virtual_tour_url,
+      videoTourUrl: row.video_tour_url,
       tenant: row.tenant_first_name ? {
         firstName: row.tenant_first_name,
         lastName: row.tenant_last_name,
@@ -156,6 +160,8 @@ export const createUnit = async (req: AuthRequest, res: Response): Promise<void>
       photos,
       amenities,
       description,
+      virtualTourUrl,
+      videoTourUrl,
     } = req.body;
 
     // Verify property ownership
@@ -173,8 +179,8 @@ export const createUnit = async (req: AuthRequest, res: Response): Promise<void>
       `INSERT INTO units (
         property_id, unit_number, bedrooms, bathrooms, square_feet,
         rent_amount, deposit_amount, status, available_date, floor_plan,
-        photos, amenities, description
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        photos, amenities, description, virtual_tour_url, video_tour_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING *`,
       [
         propertyId,
@@ -190,6 +196,8 @@ export const createUnit = async (req: AuthRequest, res: Response): Promise<void>
         JSON.stringify(photos || []),
         JSON.stringify(amenities || []),
         description || null,
+        virtualTourUrl || null,
+        videoTourUrl || null,
       ]
     );
 
@@ -212,6 +220,8 @@ export const createUnit = async (req: AuthRequest, res: Response): Promise<void>
         photos: unit.photos,
         amenities: unit.amenities,
         description: unit.description,
+        virtualTourUrl: unit.virtual_tour_url,
+        videoTourUrl: unit.video_tour_url,
         createdAt: unit.created_at,
         updatedAt: unit.updated_at,
       },
@@ -243,6 +253,8 @@ export const updateUnit = async (req: AuthRequest, res: Response): Promise<void>
       photos,
       amenities,
       description,
+      virtualTourUrl,
+      videoTourUrl,
     } = req.body;
 
     // Verify ownership through property
@@ -271,8 +283,10 @@ export const updateUnit = async (req: AuthRequest, res: Response): Promise<void>
         floor_plan = COALESCE($9, floor_plan),
         photos = COALESCE($10, photos),
         amenities = COALESCE($11, amenities),
-        description = COALESCE($12, description)
-       WHERE id = $13
+        description = COALESCE($12, description),
+        virtual_tour_url = COALESCE($13, virtual_tour_url),
+        video_tour_url = COALESCE($14, video_tour_url)
+       WHERE id = $15
        RETURNING *`,
       [
         unitNumber,
@@ -287,6 +301,8 @@ export const updateUnit = async (req: AuthRequest, res: Response): Promise<void>
         photos ? JSON.stringify(photos) : null,
         amenities ? JSON.stringify(amenities) : null,
         description,
+        virtualTourUrl !== undefined ? virtualTourUrl : null,
+        videoTourUrl !== undefined ? videoTourUrl : null,
         id,
       ]
     );
@@ -310,6 +326,8 @@ export const updateUnit = async (req: AuthRequest, res: Response): Promise<void>
         photos: unit.photos,
         amenities: unit.amenities,
         description: unit.description,
+        virtualTourUrl: unit.virtual_tour_url,
+        videoTourUrl: unit.video_tour_url,
         createdAt: unit.created_at,
         updatedAt: unit.updated_at,
       },

@@ -39,7 +39,7 @@ const distanceScore = (property: PropertyListing) => {
 
 export const PropertyListScreen = ({ navigation }: any) => {
   const { filters, savedPropertyIds, toggleSavedProperty, recordViewedProperty } = useSearch();
-  const { listings, loading } = useListings();
+  const { listings, loading, error } = useListings();
   const [sortBy, setSortBy] = useState<SortOption>('relevant');
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
 
@@ -181,7 +181,9 @@ export const PropertyListScreen = ({ navigation }: any) => {
         })}
         {!loading && sorted.length === 0 && (
           <Card style={styles.emptyCard} padding={16}>
-            <Text style={styles.emptyText}>No listings match your filters yet.</Text>
+            <Text style={styles.emptyText}>
+              {error ?? 'No listings match your filters yet.'}
+            </Text>
           </Card>
         )}
       </ScrollView>

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { Property, Unit, Application, Lease, Tenant, Notification, User } from '../types';
-import { apiRequest, clearAuthToken, getAuthToken, setAuthToken } from '../lib/api';
+import { ApiError, apiRequest, clearAuthToken, getAuthToken, setAuthToken } from '../lib/api';
 
 interface AppContextType {
   user: User | null;
@@ -18,7 +18,7 @@ interface AppContextType {
   addUnit: (unit: Omit<Unit, 'id' | 'createdAt'>) => void;
   updateUnit: (id: string, unit: Partial<Unit>) => void;
   deleteUnit: (id: string) => void;
-  updateApplication: (id: string, application: Partial<Application>) => void;
+  updateApplication: (id: string, application: Partial<Application>) => Promise<{ ok: boolean; message?: string }>;
   addLease: (lease: Omit<Lease, 'id' | 'createdAt'>) => void;
   updateLease: (id: string, lease: Partial<Lease>) => void;
   markNotificationRead: (id: string) => void;
@@ -48,6 +48,9 @@ type ApiProperty = {
   description?: string | null;
   amenities?: string[] | null;
   photoUrl?: string | null;
+  photos?: string[] | null;
+  virtualTourUrl?: string | null;
+  videoTourUrl?: string | null;
   createdAt: string;
 };
 
@@ -65,6 +68,9 @@ type ApiUnit = {
   amenities?: string[] | null;
   status: string;
   availableDate?: string | null;
+  virtualTourUrl?: string | null;
+  videoTourUrl?: string | null;
+  floorPlan?: string | null;
   createdAt: string;
 };
 
@@ -105,6 +111,7 @@ type ApiLease = {
   documentUrl?: string | null;
   signedDate?: string | null;
   notes?: string | null;
+  agreementData?: any;
   tenant?: { id: string };
   createdAt?: string;
 };
@@ -162,26 +169,35 @@ const toFrontendUser = (user: ApiUser): User => ({
   createdAt: user.createdAt || new Date().toISOString(),
 });
 
-const toFrontendProperty = (property: ApiProperty): Property => ({
-  id: property.id,
-  name: property.name,
-  address: {
-    street: property.address,
-    city: property.city,
-    state: property.state,
-    zipCode: property.zipCode,
-  },
-  type: mapPropertyType(property.propertyType),
-  totalUnits: Number(property.totalUnits) || 0,
-  description: property.description || '',
-  photos: property.photoUrl ? [property.photoUrl] : [defaultPropertyPhoto],
-  amenities: property.amenities || [],
-  contactInfo: {
-    phone: '',
-    email: '',
-  },
-  createdAt: property.createdAt,
-});
+const toFrontendProperty = (property: ApiProperty): Property => {
+  const photos = property.photos && property.photos.length > 0
+    ? property.photos
+    : property.photoUrl
+      ? [property.photoUrl]
+      : [defaultPropertyPhoto];
+  return {
+    id: property.id,
+    name: property.name,
+    address: {
+      street: property.address,
+      city: property.city,
+      state: property.state,
+      zipCode: property.zipCode,
+    },
+    type: mapPropertyType(property.propertyType),
+    totalUnits: Number(property.totalUnits) || 0,
+    description: property.description || '',
+    photos,
+    amenities: property.amenities || [],
+    contactInfo: {
+      phone: '',
+      email: '',
+    },
+    virtualTourUrl: property.virtualTourUrl || undefined,
+    videoTourUrl: property.videoTourUrl || undefined,
+    createdAt: property.createdAt,
+  };
+};
 
 const toFrontendUnit = (unit: ApiUnit): Unit => ({
   id: unit.id,
@@ -278,6 +294,7 @@ const toFrontendLease = (lease: ApiLease, unitsList: Unit[]): Lease => {
     signedAt: lease.signedDate || null,
     signatureStatus: lease.signedDate ? 'signed' : 'pending',
     documentUrl: lease.documentUrl || '',
+    agreementData: lease.agreementData || {},
     createdAt: lease.createdAt || new Date().toISOString(),
   };
 };
@@ -437,6 +454,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           description: property.description,
           amenities: property.amenities,
           photoUrl: property.photos?.[0] || null,
+          photos: property.photos || [],
+          virtualTourUrl: (property as any).virtualTourUrl || null,
+          videoTourUrl: (property as any).videoTourUrl || null,
         });
         setProperties((prev) => [toFrontendProperty(response.property), ...prev]);
       } catch (_error) {
@@ -465,6 +485,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           description: updates.description,
           amenities: updates.amenities,
           photoUrl: updates.photos?.[0],
+          photos: updates.photos,
+          virtualTourUrl: (updates as any).virtualTourUrl,
+          videoTourUrl: (updates as any).videoTourUrl,
         });
       } catch (_error) {
         await loadDashboardData();
@@ -505,6 +528,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           photos: unit.photos,
           amenities: unit.amenities,
           description: unit.description,
+          videoTourUrl: (unit as any).videoTourUrl || null,
+          floorPlan: (unit as any).floorPlan || null,
         });
         setUnits((prev) => [toFrontendUnit(response.unit), ...prev]);
       } catch (_error) {
@@ -536,6 +561,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           photos: updates.photos,
           amenities: updates.amenities,
           description: updates.description,
+          videoTourUrl: (updates as any).videoTourUrl,
+          floorPlan: (updates as any).floorPlan,
         });
       } catch (_error) {
         await loadDashboardData();
@@ -556,20 +583,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     })();
   };
 
-  const updateApplication = (id: string, updates: Partial<Application>) => {
+  const updateApplication = async (
+    id: string,
+    updates: Partial<Application>
+  ): Promise<{ ok: boolean; message?: string }> => {
+    const previousApplications = applications;
     setApplications((prev) => prev.map((a) => (a.id === id ? { ...a, ...updates } : a)));
 
-    void (async () => {
-      try {
-        if (updates.status) {
-          await apiRequest(`/api/applications/${id}/status`, 'PATCH', {
-            status: updates.status,
-          });
+    try {
+      if (updates.status) {
+        const response = await apiRequest<{
+          application?: { id: string; status?: string; notes?: string | null; reviewedAt?: string | null };
+        }>(`/api/applications/${id}/status`, 'PATCH', {
+          status: updates.status,
+        });
+
+        if (response?.application?.status) {
+          const resolvedStatus = mapApplicationStatus(response.application.status);
+          setApplications((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, status: resolvedStatus } : a))
+          );
         }
-      } catch (_error) {
-        await loadDashboardData();
+
+        if (updates.status === 'approved') {
+          await loadDashboardData();
+        }
       }
-    })();
+      return { ok: true };
+    } catch (error) {
+      setApplications(previousApplications);
+      const message =
+        error instanceof ApiError
+          ? error.message
+          : 'Unable to update the application. Please try again.';
+      return { ok: false, message };
+    }
   };
 
   const addLease = (lease: Omit<Lease, 'id' | 'createdAt'>) => {
@@ -582,11 +630,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           endDate: lease.endDate,
           rentAmount: lease.monthlyRent,
           depositAmount: lease.securityDeposit,
-          paymentDueDay: 1,
-          leaseType: lease.terms ? 'fixed' : 'month-to-month',
+          paymentDueDay: (lease as any).paymentDueDay ?? 1,
+          leaseType: lease.leaseType ?? 'fixed',
           documentUrl: lease.documentUrl || null,
           signedDate: lease.signedAt || null,
           notes: lease.terms || null,
+          agreementData: lease.agreementData || {},
         });
         if (response.lease) {
           setLeases((prev) => [toFrontendLease(response.lease, units), ...prev]);
@@ -614,11 +663,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           endDate: updates.endDate,
           rentAmount: updates.monthlyRent,
           depositAmount: updates.securityDeposit,
-          leaseType: updates.terms ? 'fixed' : undefined,
+          leaseType: updates.leaseType ?? (updates.terms ? 'fixed' : undefined),
           status: updates.status,
           documentUrl: updates.documentUrl,
           signedDate: updates.signedAt,
           notes: updates.terms,
+          agreementData: updates.agreementData,
         });
       } catch (_error) {
         await loadDashboardData();

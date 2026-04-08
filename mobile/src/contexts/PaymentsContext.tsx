@@ -2,16 +2,46 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import api from '../config/api';
 import { PaymentMethod, PaymentTransaction } from '../types';
 
+type PaymentPurpose = 'rent' | 'deposit';
+
+interface InitiateMpesaPayload {
+  paymentId?: string;
+  methodId?: string;
+  amount?: number;
+  phone?: string;
+  purpose?: PaymentPurpose;
+  description?: string;
+}
+
+interface InitiateMpesaResponse {
+  message: string;
+  customerMessage?: string;
+  checkoutRequestId?: string;
+  transaction: PaymentTransaction;
+}
+
 interface PaymentsContextValue {
   methods: PaymentMethod[];
   transactions: PaymentTransaction[];
   addMethod: (payload: Omit<PaymentMethod, 'id'>) => void;
   removeMethod: (id: string) => void;
   setDefaultMethod: (id: string) => void;
-  addTransaction: (transaction: PaymentTransaction) => void;
+  addTransaction: (
+    transaction: Omit<PaymentTransaction, 'id' | 'createdAt'>
+  ) => Promise<PaymentTransaction | null>;
+  refreshTransactions: () => Promise<void>;
+  initiateMpesaPayment: (payload: InitiateMpesaPayload) => Promise<InitiateMpesaResponse | null>;
+  fetchTransactionStatus: (
+    transactionId: string
+  ) => Promise<{ transaction: PaymentTransaction; paymentStatus: string | null } | null>;
 }
 
 const PaymentsContext = createContext<PaymentsContextValue | undefined>(undefined);
+
+const upsertTransaction = (
+  previous: PaymentTransaction[],
+  incoming: PaymentTransaction
+): PaymentTransaction[] => [incoming, ...previous.filter((item) => item.id !== incoming.id)];
 
 export const PaymentsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
@@ -31,7 +61,7 @@ export const PaymentsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const response = await api.get('/payment-transactions');
       setTransactions(response.data || []);
     } catch (error) {
-      console.error('Error loading transactions:', error);
+      console.error('Error loading payment transactions:', error);
     }
   };
 
@@ -72,34 +102,65 @@ export const PaymentsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         await api.patch(`/payment-methods/${id}/default`);
         setMethods((prev) => prev.map((item) => ({ ...item, isDefault: item.id === id })));
       } catch (error) {
-        console.error('Error setting default method:', error);
+        console.error('Error setting default payment method:', error);
       }
     })();
   };
 
-  const addTransaction = (transaction: PaymentTransaction) => {
-    void (async () => {
-      try {
-        const response = await api.post('/payment-transactions', {
-          amount: transaction.amount,
-          currency: transaction.currency,
-          status: transaction.status,
-          methodId: transaction.methodId,
-          description: transaction.description,
-        });
-        if (response.data?.transaction) {
-          setTransactions((prev) => [response.data.transaction, ...prev]);
-        } else {
-          await loadTransactions();
-        }
-      } catch (error) {
-        console.error('Error adding transaction:', error);
+  const addTransaction = async (transaction: Omit<PaymentTransaction, 'id' | 'createdAt'>) => {
+    try {
+      const response = await api.post('/payment-transactions', {
+        amount: transaction.amount,
+        currency: transaction.currency,
+        status: transaction.status,
+        methodId: transaction.methodId,
+        paymentId: transaction.paymentId,
+        purpose: transaction.purpose,
+        provider: transaction.provider,
+        phone: transaction.phone,
+        description: transaction.description,
+      });
+      if (response.data?.transaction) {
+        setTransactions((prev) => upsertTransaction(prev, response.data.transaction as PaymentTransaction));
+        return response.data.transaction as PaymentTransaction;
       }
-    })();
+      await loadTransactions();
+    } catch (error) {
+      console.error('Error adding transaction:', error);
+    }
+    return null;
+  };
+
+  const initiateMpesaPayment = async (
+    payload: InitiateMpesaPayload
+  ): Promise<InitiateMpesaResponse | null> => {
+    const response = await api.post('/payments/mpesa/stk-push', payload);
+    if (response.data?.transaction) {
+      setTransactions((prev) => upsertTransaction(prev, response.data.transaction as PaymentTransaction));
+    }
+    return response.data as InitiateMpesaResponse;
+  };
+
+  const fetchTransactionStatus = async (transactionId: string) => {
+    const response = await api.get(`/payments/mpesa/status/${transactionId}`);
+    if (response.data?.transaction) {
+      setTransactions((prev) => upsertTransaction(prev, response.data.transaction as PaymentTransaction));
+    }
+    return response.data as { transaction: PaymentTransaction; paymentStatus: string | null };
   };
 
   const value = useMemo(
-    () => ({ methods, transactions, addMethod, removeMethod, setDefaultMethod, addTransaction }),
+    () => ({
+      methods,
+      transactions,
+      addMethod,
+      removeMethod,
+      setDefaultMethod,
+      addTransaction,
+      refreshTransactions: loadTransactions,
+      initiateMpesaPayment,
+      fetchTransactionStatus,
+    }),
     [methods, transactions]
   );
 

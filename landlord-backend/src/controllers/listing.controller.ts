@@ -35,24 +35,93 @@ const normalizeArray = (value: any) => {
   return [];
 };
 
+type GeoPoint = { lat: number; lng: number };
+
+const CITY_CENTER_LOOKUP: Record<string, GeoPoint> = {
+  'nairobi': { lat: -1.286389, lng: 36.817223 },
+  'mombasa': { lat: -4.043477, lng: 39.668206 },
+  'kisumu': { lat: -0.1022, lng: 34.7617 },
+  'nakuru': { lat: -0.3031, lng: 36.08 },
+  'eldoret': { lat: 0.5143, lng: 35.2698 },
+  'thika': { lat: -1.0333, lng: 37.0693 },
+  'los angeles': { lat: 34.052235, lng: -118.243683 },
+  'san diego': { lat: 32.715736, lng: -117.161087 },
+  'san francisco': { lat: 37.7749, lng: -122.4194 },
+  'new york': { lat: 40.7128, lng: -74.006 },
+};
+
+const STATE_FALLBACK_LOOKUP: Record<string, GeoPoint> = {
+  ca: { lat: 36.778259, lng: -119.417931 },
+  ny: { lat: 43.0, lng: -75.0 },
+  tx: { lat: 31.0, lng: -99.0 },
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const toFiniteNumber = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === '') return null;
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+};
+
+const deriveCoordinates = (
+  explicitLat: unknown,
+  explicitLng: unknown,
+  city: string,
+  state: string,
+  mapX: number,
+  mapY: number
+): GeoPoint => {
+  const lat = toFiniteNumber(explicitLat);
+  const lng = toFiniteNumber(explicitLng);
+  if (lat !== null && lng !== null) {
+    return {
+      lat: clamp(lat, -90, 90),
+      lng: clamp(lng, -180, 180),
+    };
+  }
+
+  const normalizedCity = city.trim().toLowerCase();
+  const normalizedState = state.trim().toLowerCase();
+  const cityCenter = CITY_CENTER_LOOKUP[normalizedCity];
+  const stateCenter = STATE_FALLBACK_LOOKUP[normalizedState];
+  const base = cityCenter || stateCenter || CITY_CENTER_LOOKUP.nairobi;
+
+  // Stable offset around city center so multiple units do not overlap exactly.
+  const latOffset = (mapY - 0.5) * 0.08;
+  const lngOffset = (mapX - 0.5) * 0.08;
+
+  return {
+    lat: clamp(base.lat + latOffset, -90, 90),
+    lng: clamp(base.lng + lngOffset, -180, 180),
+  };
+};
+
 export const getListings = async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
       `SELECT u.*, p.name as property_name, p.address, p.city, p.state, p.zip_code,
         p.property_type, p.year_built, p.amenities as property_amenities, p.photo_url,
-        p.description as property_description
+        p.latitude, p.longitude,
+        p.photos as property_photos, p.virtual_tour_url as property_virtual_tour_url,
+        p.video_tour_url as property_video_tour_url,
+        p.description as property_description, l.email as landlord_email, l.phone as landlord_phone
        FROM units u
        JOIN properties p ON u.property_id = p.id
+       JOIN users l ON p.landlord_id = l.id
+       WHERE u.status IN ('vacant', 'pending')
        ORDER BY u.created_at DESC`
     );
 
     const listings = result.rows.map((row) => {
       const mapX = hashToUnit(row.id, 17);
       const mapY = hashToUnit(row.id, 43);
+      const coords = deriveCoordinates(row.latitude, row.longitude, row.city, row.state, mapX, mapY);
       const unitPhotos = normalizeArray(row.photos);
       const propertyAmenities = normalizeArray(row.property_amenities);
       const unitAmenities = normalizeArray(row.amenities);
-      const photos = unitPhotos.length > 0 ? unitPhotos : row.photo_url ? [row.photo_url] : [];
+      const propertyPhotos = normalizeArray(row.property_photos);
+      const photos = unitPhotos.length > 0 ? unitPhotos : propertyPhotos.length > 0 ? propertyPhotos : row.photo_url ? [row.photo_url] : [];
       const amenities = unitAmenities.length > 0 ? unitAmenities : propertyAmenities;
       const createdAt = row.created_at ? new Date(row.created_at) : new Date();
       const daysOnPlatform = Math.max(0, Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)));
@@ -82,10 +151,15 @@ export const getListings = async (_req: AuthRequest, res: Response): Promise<voi
         amenities,
         images: photos,
         description: row.description || row.property_description || '',
-        virtualTourAvailable: false,
+        virtualTourAvailable: !!(row.virtual_tour_url || row.property_virtual_tour_url || row.video_tour_url || row.property_video_tour_url),
+        virtualTourUrl: row.virtual_tour_url || row.property_virtual_tour_url || undefined,
+        videoTourUrl: row.video_tour_url || row.property_video_tour_url || undefined,
+        floorPlanUrl: row.floor_plan || undefined,
+        landlordEmail: row.landlord_email,
+        landlordPhone: row.landlord_phone,
         location: {
-          lat: 0,
-          lng: 0,
+          lat: coords.lat,
+          lng: coords.lng,
           mapX,
           mapY,
         },
@@ -105,9 +179,13 @@ export const getListing = async (req: AuthRequest, res: Response): Promise<void>
     const result = await pool.query(
       `SELECT u.*, p.name as property_name, p.address, p.city, p.state, p.zip_code,
         p.property_type, p.year_built, p.amenities as property_amenities, p.photo_url,
-        p.description as property_description
+        p.latitude, p.longitude,
+        p.photos as property_photos, p.virtual_tour_url as property_virtual_tour_url,
+        p.video_tour_url as property_video_tour_url,
+        p.description as property_description, l.email as landlord_email, l.phone as landlord_phone
        FROM units u
        JOIN properties p ON u.property_id = p.id
+       JOIN users l ON p.landlord_id = l.id
        WHERE u.id = $1`,
       [id]
     );
@@ -120,10 +198,12 @@ export const getListing = async (req: AuthRequest, res: Response): Promise<void>
     const row = result.rows[0];
     const mapX = hashToUnit(row.id, 17);
     const mapY = hashToUnit(row.id, 43);
+    const coords = deriveCoordinates(row.latitude, row.longitude, row.city, row.state, mapX, mapY);
     const unitPhotos = normalizeArray(row.photos);
     const propertyAmenities = normalizeArray(row.property_amenities);
     const unitAmenities = normalizeArray(row.amenities);
-    const photos = unitPhotos.length > 0 ? unitPhotos : row.photo_url ? [row.photo_url] : [];
+    const propertyPhotos = normalizeArray(row.property_photos);
+    const photos = unitPhotos.length > 0 ? unitPhotos : propertyPhotos.length > 0 ? propertyPhotos : row.photo_url ? [row.photo_url] : [];
     const amenities = unitAmenities.length > 0 ? unitAmenities : propertyAmenities;
     const createdAt = row.created_at ? new Date(row.created_at) : new Date();
     const daysOnPlatform = Math.max(0, Math.floor((Date.now() - createdAt.getTime()) / (1000 * 60 * 60 * 24)));
@@ -153,10 +233,15 @@ export const getListing = async (req: AuthRequest, res: Response): Promise<void>
       amenities,
       images: photos,
       description: row.description || row.property_description || '',
-      virtualTourAvailable: false,
+      virtualTourAvailable: !!(row.virtual_tour_url || row.property_virtual_tour_url || row.video_tour_url || row.property_video_tour_url),
+      virtualTourUrl: row.virtual_tour_url || row.property_virtual_tour_url || undefined,
+      videoTourUrl: row.video_tour_url || row.property_video_tour_url || undefined,
+      floorPlanUrl: row.floor_plan || undefined,
+      landlordEmail: row.landlord_email,
+      landlordPhone: row.landlord_phone,
       location: {
-        lat: 0,
-        lng: 0,
+        lat: coords.lat,
+        lng: coords.lng,
         mapX,
         mapY,
       },

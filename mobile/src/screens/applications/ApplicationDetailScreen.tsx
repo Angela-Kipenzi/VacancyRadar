@@ -5,6 +5,13 @@ import { Card } from '../../components/common/Card';
 import { useApplications } from '../../contexts/ApplicationsContext';
 import { format } from 'date-fns';
 
+const formatDateSafe = (value?: string) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return format(date, 'MMMM dd, yyyy');
+};
+
 export const ApplicationDetailScreen = ({ navigation, route }: any) => {
   const { applicationId } = route.params;
   const { getApplicationById, withdrawApplication } = useApplications();
@@ -25,7 +32,7 @@ export const ApplicationDetailScreen = ({ navigation, route }: any) => {
           Application for: {application.propertyAddress}, Unit {application.unitNumber}
         </Text>
         <Text style={styles.meta}>
-          Applied on: {format(new Date(application.appliedOn), 'MMMM dd, yyyy')}
+          Applied on: {formatDateSafe(application.appliedOn)}
         </Text>
         <Text style={styles.meta}>Status: {application.status}</Text>
       </Card>

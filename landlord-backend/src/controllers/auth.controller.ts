@@ -53,7 +53,9 @@ export const register = async (req: AuthRequest, res: Response): Promise<void> =
       const result = await pool.query(
         `INSERT INTO tenants (landlord_id, first_name, last_name, email, phone, status, password)
          VALUES (NULL, $1, $2, $3, $4, $5, $6)
-         RETURNING id, email, first_name, last_name, phone, status, created_at`,
+         RETURNING id, email, first_name, last_name, phone, status,
+           emergency_contact_name, emergency_contact_phone, profile_photo_url,
+           created_at`,
         [firstName, lastName, email, phone || null, 'inactive', hashedPassword]
       );
 
@@ -71,6 +73,9 @@ export const register = async (req: AuthRequest, res: Response): Promise<void> =
           firstName: tenant.first_name,
           lastName: tenant.last_name,
           phone: tenant.phone,
+          emergencyContactName: tenant.emergency_contact_name,
+          emergencyContactPhone: tenant.emergency_contact_phone,
+          profilePhotoUrl: tenant.profile_photo_url,
           createdAt: tenant.created_at,
           role: 'tenant',
         },
@@ -170,6 +175,9 @@ export const login = async (req: AuthRequest, res: Response): Promise<void> => {
           firstName: tenant.first_name,
           lastName: tenant.last_name,
           phone: tenant.phone,
+          emergencyContactName: tenant.emergency_contact_name,
+          emergencyContactPhone: tenant.emergency_contact_phone,
+          profilePhotoUrl: tenant.profile_photo_url,
           role: 'tenant',
         },
       });
@@ -224,7 +232,10 @@ export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<v
   try {
     if (req.userRole === 'tenant') {
       const result = await pool.query(
-        'SELECT id, email, first_name, last_name, phone, created_at FROM tenants WHERE id = $1',
+        `SELECT id, email, first_name, last_name, phone,
+          emergency_contact_name, emergency_contact_phone, profile_photo_url,
+          created_at
+         FROM tenants WHERE id = $1`,
         [req.userId]
       );
 
@@ -241,6 +252,9 @@ export const getCurrentUser = async (req: AuthRequest, res: Response): Promise<v
         firstName: user.first_name,
         lastName: user.last_name,
         phone: user.phone,
+        emergencyContactName: user.emergency_contact_name,
+        emergencyContactPhone: user.emergency_contact_phone,
+        profilePhotoUrl: user.profile_photo_url,
         createdAt: user.created_at,
         role: 'tenant',
       });

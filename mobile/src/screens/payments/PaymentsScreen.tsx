@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -15,18 +15,19 @@ import api from '../../config/api';
 import { Payment } from '../../types';
 import { format } from 'date-fns';
 import { usePayments } from '../../contexts/PaymentsContext';
+import { useFocusEffect } from '@react-navigation/native';
 
 export const PaymentsScreen = ({ navigation }: any) => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(false);
   const { methods, transactions } = usePayments();
   const defaultMethod = methods.find((method) => method.isDefault);
+  const defaultCurrency = payments[0]?.currency || 'KES';
+  const nextOutstandingPayment = payments
+    .filter((payment) => ['pending', 'late', 'partial'].includes(payment.status))
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0];
 
-  useEffect(() => {
-    loadPayments();
-  }, []);
-
-  const loadPayments = async () => {
+  const loadPayments = useCallback(async () => {
     setLoading(true);
     try {
       const response = await api.get('/payments');
@@ -36,7 +37,13 @@ export const PaymentsScreen = ({ navigation }: any) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPayments();
+    }, [loadPayments])
+  );
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -64,6 +71,9 @@ export const PaymentsScreen = ({ navigation }: any) => {
     }
   };
 
+  const getPaymentTypeLabel = (payment: Payment) =>
+    payment.paymentType === 'deposit' ? 'Security Deposit' : 'Rent';
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -80,13 +90,17 @@ export const PaymentsScreen = ({ navigation }: any) => {
           </View>
           {defaultMethod ? (
             <View style={styles.methodRow}>
-              <Ionicons name="card-outline" size={20} color={colors.primary} />
+              <Ionicons
+                name={defaultMethod.type === 'mobile_money' ? 'phone-portrait-outline' : 'card-outline'}
+                size={20}
+                color={colors.primary}
+              />
               <View style={styles.methodInfo}>
                 <Text style={styles.methodLabel}>{defaultMethod.label}</Text>
                 <Text style={styles.methodMeta}>
                   {defaultMethod.type === 'card'
-                    ? `${defaultMethod.brand ?? 'Card'} · Expires ${defaultMethod.expiry ?? 'N/A'}`
-                    : `${defaultMethod.provider ?? 'Mobile money'} · ${defaultMethod.phone ?? ''}`}
+                    ? `${defaultMethod.brand ?? 'Card'} - Expires ${defaultMethod.expiry ?? 'N/A'}`
+                    : `${defaultMethod.provider ?? 'Mobile money'} - ${defaultMethod.phone ?? ''}`}
                 </Text>
               </View>
               <View style={styles.defaultBadge}>
@@ -112,7 +126,7 @@ export const PaymentsScreen = ({ navigation }: any) => {
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Total Paid</Text>
               <Text style={styles.summaryValue}>
-                $
+                {defaultCurrency}{' '}
                 {payments
                   .filter((p) => p.status === 'paid')
                   .reduce((sum, p) => sum + p.amount, 0)
@@ -122,14 +136,26 @@ export const PaymentsScreen = ({ navigation }: any) => {
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Pending</Text>
               <Text style={styles.summaryValue}>
-                $
+                {defaultCurrency}{' '}
                 {payments
-                  .filter((p) => p.status === 'pending')
+                  .filter((p) => ['pending', 'late', 'partial'].includes(p.status))
                   .reduce((sum, p) => sum + p.amount, 0)
                   .toFixed(2)}
               </Text>
             </View>
           </View>
+        </Card>
+
+        <Card style={styles.makePaymentCard}>
+          <Button
+            title="Make Payment"
+            onPress={() => navigation.navigate('MakePayment', { payment: nextOutstandingPayment })}
+            disabled={!nextOutstandingPayment}
+            fullWidth
+          />
+          {!nextOutstandingPayment && (
+            <Text style={styles.makePaymentHint}>No pending payment right now.</Text>
+          )}
         </Card>
 
         {/* Payment History */}
@@ -164,8 +190,9 @@ export const PaymentsScreen = ({ navigation }: any) => {
                     </View>
                     <View style={styles.paymentInfo}>
                       <Text style={styles.paymentAmount}>
-                        ${payment.amount.toFixed(2)}
+                        {(payment.currency || defaultCurrency)} {payment.amount.toFixed(2)}
                       </Text>
+                      <Text style={styles.paymentType}>{getPaymentTypeLabel(payment)}</Text>
                       <Text style={styles.paymentDate}>
                         Due: {format(new Date(payment.dueDate), 'MMM dd, yyyy')}
                       </Text>
@@ -192,7 +219,7 @@ export const PaymentsScreen = ({ navigation }: any) => {
                     </Text>
                   </View>
                 </View>
-                {payment.status === 'pending' && (
+                {['pending', 'late', 'partial'].includes(payment.status) && (
                   <Button
                     title="Pay Now"
                     onPress={() => navigation.navigate('MakePayment', { payment })}
@@ -301,6 +328,16 @@ const styles = StyleSheet.create({
   summaryCard: {
     margin: 16,
   },
+  makePaymentCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+  },
+  makePaymentHint: {
+    marginTop: 8,
+    color: colors.textSecondary,
+    fontSize: 12,
+    textAlign: 'center',
+  },
   summaryTitle: {
     fontSize: 18,
     fontWeight: '600',
@@ -376,6 +413,12 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: colors.text,
+    marginBottom: 4,
+  },
+  paymentType: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '600',
     marginBottom: 4,
   },
   paymentDate: {

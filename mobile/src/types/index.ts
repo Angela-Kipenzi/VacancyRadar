@@ -8,6 +8,12 @@ export type RootStackParamList = {
   CreateRequest: undefined;
   RequestDetail: { request: MaintenanceRequest };
   Profile: undefined;
+  ProfileHome: undefined;
+  EditProfile: undefined;
+  Documents: undefined;
+  Notifications: undefined;
+  HelpSupport: undefined;
+  About: undefined;
   Payments: undefined;
   Settings: undefined;
   SearchMap: undefined;
@@ -33,6 +39,7 @@ export type RootStackParamList = {
   PaymentMethods: undefined;
   AddPaymentMethod: undefined;
   PaymentHistory: undefined;
+  MakePayment: { payment: Payment };
 };
 
 export type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
@@ -47,6 +54,9 @@ export interface User {
   firstName: string;
   lastName: string;
   phone: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  profilePhotoUrl?: string;
 }
 
 export interface Tenant {
@@ -81,6 +91,42 @@ export interface Unit {
   };
 }
 
+export type YesNo = 'yes' | 'no';
+
+export interface LeaseAgreementData {
+  propertyType?: string;
+  leaseType?: 'fixed' | 'month-to-month';
+  startDate?: string;
+  endDate?: string;
+  bedrooms?: string;
+  bathrooms?: string;
+  propertyAddress?: string;
+  landlord?: string;
+  tenant?: string;
+  noticesToTenant?: string;
+  occupants?: string;
+  furnishings?: string;
+  appliances?: string;
+  monthlyRent?: string;
+  paymentMethods?: string;
+  securityDeposit?: string;
+  earlyMoveIn?: YesNo;
+  prepaidRent?: YesNo;
+  lateFee?: YesNo;
+  nsfFee?: YesNo;
+  parking?: YesNo;
+  utilitiesServices?: YesNo;
+  pets?: YesNo;
+  moveInInspection?: YesNo;
+  smokingPolicy?: YesNo;
+  rentersInsurance?: YesNo;
+  subletting?: YesNo;
+  authorizedPersons?: string;
+  leadBasedPaintDisclosure?: YesNo;
+  cosigner?: YesNo;
+  additionalTerms?: string;
+}
+
 export interface Lease {
   id: string;
   unitId: string;
@@ -92,13 +138,18 @@ export interface Lease {
   leaseType: 'fixed' | 'month-to-month';
   status: 'active' | 'expired' | 'terminated' | 'pending';
   documentUrl?: string;
+  signedDate?: string | null;
+  notes?: string | null;
+  agreementData?: LeaseAgreementData;
   unit?: Unit;
 }
 
 export interface Payment {
   id: string;
   leaseId: string;
+  paymentType?: 'rent' | 'deposit';
   amount: number;
+  currency?: string;
   dueDate: string;
   paidDate?: string;
   status: 'pending' | 'paid' | 'late' | 'partial';
@@ -144,27 +195,16 @@ export type PropertyType = 'apartment' | 'house' | 'condo' | 'studio';
 export type SqftUnit = 'sqft' | 'm2';
 
 export type Amenity =
-  | 'parking_street'
-  | 'parking_garage'
-  | 'parking_dedicated'
-  | 'laundry_in_unit'
-  | 'laundry_building'
-  | 'laundry_none'
-  | 'air_conditioning'
-  | 'heating'
-  | 'pet_cats'
-  | 'pet_dogs'
-  | 'pet_both'
-  | 'pet_none'
-  | 'furnished'
-  | 'unfurnished'
-  | 'balcony'
-  | 'gym'
-  | 'pool'
-  | 'elevator'
-  | 'wheelchair'
-  | 'security'
-  | 'storage';
+  | 'Parking'
+  | 'Laundry'
+  | 'Gym'
+  | 'Pool'
+  | 'Security'
+  | 'Elevator'
+  | 'Rooftop Deck'
+  | 'Storage'
+  | 'Pet Friendly'
+  | 'Concierge';
 
 export interface PropertyListing {
   id: string;
@@ -192,8 +232,11 @@ export interface PropertyListing {
   images: string[];
   description: string;
   virtualTourAvailable: boolean;
+  virtualTourUrl?: string;
   videoTourUrl?: string;
   floorPlanUrl?: string;
+  landlordPhone?: string;
+  landlordEmail?: string;
   location: {
     lat: number;
     lng: number;
@@ -225,6 +268,7 @@ export interface PhotoNote {
 export interface CheckInStatus {
   qrScanned: boolean;
   qrData?: string;
+  unitId?: string;
   locationVerified: boolean;
   locationCoords?: GeoPoint;
   checkInTimestamp?: string;
@@ -233,6 +277,11 @@ export interface CheckInStatus {
   damageNotes: string;
   welcomeSent: boolean;
   unitStatus: 'pending' | 'occupied';
+  welcomeInfo?: {
+    propertyName: string;
+    unitNumber: string;
+    firstName: string;
+  } | null;
 }
 
 export interface CheckOutStatus {
@@ -313,8 +362,18 @@ export interface PaymentTransaction {
   currency: string;
   status: 'paid' | 'pending' | 'failed';
   methodId?: string;
+  paymentId?: string;
+  purpose?: 'rent' | 'deposit';
+  provider?: string;
+  phone?: string;
+  checkoutRequestId?: string;
+  merchantRequestId?: string;
+  mpesaReceipt?: string;
+  mpesaResultCode?: number;
+  mpesaResultDesc?: string;
   description: string;
   createdAt: string;
+  completedAt?: string;
 }
 
 export type ReviewStatus = 'pending' | 'published' | 'hidden';

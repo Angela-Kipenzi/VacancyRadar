@@ -46,8 +46,8 @@ export const PaymentMethodsScreen = ({ navigation }: any) => {
                   <Text style={styles.methodLabel}>{method.label}</Text>
                   <Text style={styles.methodMeta}>
                     {method.type === 'card'
-                      ? `${method.brand ?? 'Card'} · Expires ${method.expiry ?? 'N/A'}`
-                      : `${method.provider ?? 'Mobile money'} · ${method.phone ?? ''}`}
+                      ? `${method.brand ?? 'Card'} - Expires ${method.expiry ?? 'N/A'}`
+                      : `${method.provider ?? 'Mobile money'} - ${method.phone ?? ''}`}
                   </Text>
                 </View>
               </View>

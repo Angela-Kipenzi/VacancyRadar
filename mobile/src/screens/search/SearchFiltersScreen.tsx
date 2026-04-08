@@ -7,74 +7,233 @@ import {
   TextInput,
   TouchableOpacity,
   Switch,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { useSearch, defaultFilters } from '../../contexts/SearchContext';
 import { Amenity, PropertyType, SearchFilters } from '../../types';
 
-const bedroomOptions: Array<'studio' | '1' | '2' | '3' | '4+'> = [
-  'studio',
-  '1',
-  '2',
-  '3',
-  '4+',
-];
-const bathroomOptions: Array<'1' | '1.5' | '2' | '2.5' | '3+'> = [
-  '1',
-  '1.5',
-  '2',
-  '2.5',
-  '3+',
-];
-const propertyTypeOptions: PropertyType[] = ['apartment', 'house', 'condo', 'studio'];
-const radiusOptions = [1, 3, 5, 10];
-const currencyOptions = ['USD', 'KES', 'EUR'];
-const availabilityOptions = [7, 14, 30];
+type SelectOption<T> = { label: string; value: T };
 
-const amenityOptions: { label: string; value: Amenity }[] = [
-  { label: 'Parking (Street)', value: 'parking_street' },
-  { label: 'Parking (Garage)', value: 'parking_garage' },
-  { label: 'Parking (Dedicated)', value: 'parking_dedicated' },
-  { label: 'Laundry (In-unit)', value: 'laundry_in_unit' },
-  { label: 'Laundry (Building)', value: 'laundry_building' },
-  { label: 'Laundry (None)', value: 'laundry_none' },
-  { label: 'Air Conditioning', value: 'air_conditioning' },
-  { label: 'Heating', value: 'heating' },
-  { label: 'Pet Policy (Cats)', value: 'pet_cats' },
-  { label: 'Pet Policy (Dogs)', value: 'pet_dogs' },
-  { label: 'Pet Policy (Both)', value: 'pet_both' },
-  { label: 'Pet Policy (None)', value: 'pet_none' },
-  { label: 'Furnished', value: 'furnished' },
-  { label: 'Unfurnished', value: 'unfurnished' },
-  { label: 'Balcony/Patio', value: 'balcony' },
-  { label: 'Gym/Fitness', value: 'gym' },
-  { label: 'Pool', value: 'pool' },
-  { label: 'Elevator', value: 'elevator' },
-  { label: 'Wheelchair Access', value: 'wheelchair' },
-  { label: 'Security System', value: 'security' },
-  { label: 'Storage Unit', value: 'storage' },
+const bedroomOptions: SelectOption<'studio' | '1' | '2' | '3' | '4+'>[] = [
+  { label: 'Studio', value: 'studio' },
+  { label: '1', value: '1' },
+  { label: '2', value: '2' },
+  { label: '3', value: '3' },
+  { label: '4+', value: '4+' },
+];
+const bathroomOptions: SelectOption<'1' | '1.5' | '2' | '2.5' | '3+'>[] = [
+  { label: '1', value: '1' },
+  { label: '1.5', value: '1.5' },
+  { label: '2', value: '2' },
+  { label: '2.5', value: '2.5' },
+  { label: '3+', value: '3+' },
+];
+const propertyTypeOptions: SelectOption<PropertyType>[] = [
+  { label: 'Apartment', value: 'apartment' },
+  { label: 'House', value: 'house' },
+  { label: 'Condo', value: 'condo' },
+  { label: 'Studio', value: 'studio' },
+];
+const radiusOptions: SelectOption<number>[] = [
+  { label: '1 km', value: 1 },
+  { label: '3 km', value: 3 },
+  { label: '5 km', value: 5 },
+  { label: '10 km', value: 10 },
+];
+const currencyOptions: SelectOption<string>[] = [
+  { label: 'USD', value: 'USD' },
+  { label: 'KES', value: 'KES' },
+  { label: 'EUR', value: 'EUR' },
+];
+const availabilityOptions: SelectOption<number | null>[] = [
+  { label: 'Any time', value: null },
+  { label: '7 days', value: 7 },
+  { label: '14 days', value: 14 },
+  { label: '30 days', value: 30 },
+];
+const sqftUnitOptions: SelectOption<'sqft' | 'm2'>[] = [
+  { label: 'sqft', value: 'sqft' },
+  { label: 'm2', value: 'm2' },
+];
+
+const amenityOptions: SelectOption<Amenity>[] = [
+  { label: 'Parking', value: 'Parking' },
+  { label: 'Laundry', value: 'Laundry' },
+  { label: 'Gym', value: 'Gym' },
+  { label: 'Pool', value: 'Pool' },
+  { label: 'Security', value: 'Security' },
+  { label: 'Elevator', value: 'Elevator' },
+  { label: 'Rooftop Deck', value: 'Rooftop Deck' },
+  { label: 'Storage', value: 'Storage' },
+  { label: 'Pet Friendly', value: 'Pet Friendly' },
+  { label: 'Concierge', value: 'Concierge' },
 ];
 
 const toggleValue = <T,>(list: T[], value: T) =>
   list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
 
-const FilterChip = ({
+const getOptionLabel = <T,>(options: SelectOption<T>[], value: T | null | undefined) =>
+  options.find((option) => option.value === value)?.label ?? '';
+
+const summarizeMulti = <T,>(options: SelectOption<T>[], values: T[]) => {
+  if (!values.length) return '';
+  const labels = values
+    .map((value) => getOptionLabel(options, value))
+    .filter((label) => label.length > 0);
+  if (labels.length <= 2) return labels.join(', ');
+  return `${labels.slice(0, 2).join(', ')} +${labels.length - 2}`;
+};
+
+const DropdownField = ({
   label,
-  active,
+  valueText,
+  placeholder,
   onPress,
 }: {
   label: string;
-  active: boolean;
+  valueText: string;
+  placeholder: string;
   onPress: () => void;
 }) => (
-  <TouchableOpacity
-    style={[styles.chip, active && styles.chipActive]}
-    onPress={onPress}
-  >
-    <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
-  </TouchableOpacity>
+  <View style={styles.dropdownField}>
+    <Text style={styles.subTitle}>{label}</Text>
+    <TouchableOpacity style={styles.dropdownButton} onPress={onPress}>
+      <Text
+        style={[
+          styles.dropdownValue,
+          !valueText.length && styles.dropdownPlaceholder,
+        ]}
+      >
+        {valueText.length ? valueText : placeholder}
+      </Text>
+      <Ionicons name="chevron-down" size={16} color={colors.textSecondary} />
+    </TouchableOpacity>
+  </View>
 );
+
+const SingleSelectDropdown = <T,>({
+  label,
+  options,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  options: SelectOption<T>[];
+  value: T | null | undefined;
+  placeholder: string;
+  onChange: (value: T) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const valueText = getOptionLabel(options, value);
+
+  return (
+    <View>
+      <DropdownField
+        label={label}
+        valueText={valueText}
+        placeholder={placeholder}
+        onPress={() => setOpen(true)}
+      />
+      <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.modalBackdrop}
+          onPress={() => setOpen(false)}
+        >
+          <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            <ScrollView style={styles.modalList} contentContainerStyle={styles.modalListContent}>
+              {options.map((option) => {
+                const isActive = option.value === value;
+                return (
+                  <TouchableOpacity
+                    key={option.label}
+                    style={[styles.modalItem, isActive && styles.modalItemActive]}
+                    onPress={() => {
+                      onChange(option.value);
+                      setOpen(false);
+                    }}
+                  >
+                    <Text style={[styles.modalItemText, isActive && styles.modalItemTextActive]}>
+                      {option.label}
+                    </Text>
+                    {isActive && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+};
+
+const MultiSelectDropdown = <T,>({
+  label,
+  options,
+  values,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  options: SelectOption<T>[];
+  values: T[];
+  placeholder: string;
+  onChange: (values: T[]) => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  const summary = summarizeMulti(options, values);
+
+  return (
+    <View>
+      <DropdownField
+        label={label}
+        valueText={summary}
+        placeholder={placeholder}
+        onPress={() => setOpen(true)}
+      />
+      <Modal transparent animationType="fade" visible={open} onRequestClose={() => setOpen(false)}>
+        <TouchableOpacity
+          activeOpacity={1}
+          style={styles.modalBackdrop}
+          onPress={() => setOpen(false)}
+        >
+          <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitle}>{label}</Text>
+            <ScrollView style={styles.modalList} contentContainerStyle={styles.modalListContent}>
+              {options.map((option) => {
+                const isActive = values.includes(option.value);
+                return (
+                  <TouchableOpacity
+                    key={option.label}
+                    style={[styles.modalItem, isActive && styles.modalItemActive]}
+                    onPress={() => onChange(toggleValue(values, option.value))}
+                  >
+                    <Text style={[styles.modalItemText, isActive && styles.modalItemTextActive]}>
+                      {option.label}
+                    </Text>
+                    <Ionicons
+                      name={isActive ? 'checkbox' : 'square-outline'}
+                      size={18}
+                      color={isActive ? colors.primary : colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity style={styles.modalDoneButton} onPress={() => setOpen(false)}>
+              <Text style={styles.modalDoneText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+};
 
 export const SearchFiltersScreen = ({ navigation, route }: any) => {
   const { filters, setFilters, recordSearch, savedSearches, updateSavedSearch } = useSearch();
@@ -110,29 +269,28 @@ export const SearchFiltersScreen = ({ navigation, route }: any) => {
         <Text style={styles.sectionTitle}>Location</Text>
         <View style={styles.row}>
           <TextInput
-            placeholder="City"
+            placeholder="City / County (e.g. Nairobi)"
             value={draft.city}
             onChangeText={(value) => setDraft({ ...draft, city: value })}
             style={styles.input}
           />
           <TextInput
-            placeholder="Neighborhood"
+            placeholder="Town / Estate (e.g. Westlands)"
             value={draft.neighborhood}
             onChangeText={(value) => setDraft({ ...draft, neighborhood: value })}
             style={styles.input}
           />
         </View>
-        <Text style={styles.subTitle}>Radius</Text>
-        <View style={styles.chipRow}>
-          {radiusOptions.map((radius) => (
-            <FilterChip
-              key={radius}
-              label={`${radius} km`}
-              active={draft.radiusKm === radius}
-              onPress={() => setDraft({ ...draft, radiusKm: radius })}
-            />
-          ))}
-        </View>
+        <Text style={styles.helperText}>
+          Tip: You can type part of a name. Leave both blank to see all listings.
+        </Text>
+        <SingleSelectDropdown
+          label="Radius"
+          options={radiusOptions}
+          value={draft.radiusKm}
+          placeholder="Select radius"
+          onChange={(value) => setDraft({ ...draft, radiusKm: value })}
+        />
         <TouchableOpacity
           style={[styles.drawButton, draft.drawAreaEnabled && styles.drawButtonActive]}
           onPress={() => setDraft({ ...draft, drawAreaEnabled: !draft.drawAreaEnabled })}
@@ -171,59 +329,38 @@ export const SearchFiltersScreen = ({ navigation, route }: any) => {
             style={styles.input}
           />
         </View>
-        <Text style={styles.subTitle}>Currency</Text>
-        <View style={styles.chipRow}>
-          {currencyOptions.map((currency) => (
-            <FilterChip
-              key={currency}
-              label={currency}
-              active={draft.currency === currency}
-              onPress={() => setDraft({ ...draft, currency })}
-            />
-          ))}
-        </View>
+        <SingleSelectDropdown
+          label="Currency"
+          options={currencyOptions}
+          value={draft.currency}
+          placeholder="Select currency"
+          onChange={(value) => setDraft({ ...draft, currency: value })}
+        />
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Property Details</Text>
-        <Text style={styles.subTitle}>Bedrooms</Text>
-        <View style={styles.chipRow}>
-          {bedroomOptions.map((option) => (
-            <FilterChip
-              key={option}
-              label={option}
-              active={draft.bedrooms.includes(option)}
-              onPress={() => setDraft({ ...draft, bedrooms: toggleValue(draft.bedrooms, option) })}
-            />
-          ))}
-        </View>
-        <Text style={styles.subTitle}>Bathrooms</Text>
-        <View style={styles.chipRow}>
-          {bathroomOptions.map((option) => (
-            <FilterChip
-              key={option}
-              label={option}
-              active={draft.bathrooms.includes(option)}
-              onPress={() => setDraft({ ...draft, bathrooms: toggleValue(draft.bathrooms, option) })}
-            />
-          ))}
-        </View>
-        <Text style={styles.subTitle}>Property Type</Text>
-        <View style={styles.chipRow}>
-          {propertyTypeOptions.map((type) => (
-            <FilterChip
-              key={type}
-              label={type}
-              active={draft.propertyTypes.includes(type)}
-              onPress={() =>
-                setDraft({
-                  ...draft,
-                  propertyTypes: toggleValue(draft.propertyTypes, type),
-                })
-              }
-            />
-          ))}
-        </View>
+        <MultiSelectDropdown
+          label="Bedrooms"
+          options={bedroomOptions}
+          values={draft.bedrooms}
+          placeholder="Any"
+          onChange={(values) => setDraft({ ...draft, bedrooms: values })}
+        />
+        <MultiSelectDropdown
+          label="Bathrooms"
+          options={bathroomOptions}
+          values={draft.bathrooms}
+          placeholder="Any"
+          onChange={(values) => setDraft({ ...draft, bathrooms: values })}
+        />
+        <MultiSelectDropdown
+          label="Property Type"
+          options={propertyTypeOptions}
+          values={draft.propertyTypes}
+          placeholder="Any"
+          onChange={(values) => setDraft({ ...draft, propertyTypes: values })}
+        />
         <Text style={styles.subTitle}>Square Footage</Text>
         <View style={styles.row}>
           <TextInput
@@ -241,16 +378,13 @@ export const SearchFiltersScreen = ({ navigation, route }: any) => {
             style={styles.input}
           />
         </View>
-        <View style={styles.chipRow}>
-          {(['sqft', 'm2'] as const).map((unit) => (
-            <FilterChip
-              key={unit}
-              label={unit}
-              active={draft.sqftUnit === unit}
-              onPress={() => setDraft({ ...draft, sqftUnit: unit })}
-            />
-          ))}
-        </View>
+        <SingleSelectDropdown
+          label="Square Foot Unit"
+          options={sqftUnitOptions}
+          value={draft.sqftUnit}
+          placeholder="Select unit"
+          onChange={(value) => setDraft({ ...draft, sqftUnit: value })}
+        />
       </View>
 
       <View style={styles.section}>
@@ -262,17 +396,13 @@ export const SearchFiltersScreen = ({ navigation, route }: any) => {
             onValueChange={(value) => setDraft({ ...draft, availableNow: value })}
           />
         </View>
-        <Text style={styles.subTitle}>Available within</Text>
-        <View style={styles.chipRow}>
-          {availabilityOptions.map((days) => (
-            <FilterChip
-              key={days}
-              label={`${days} days`}
-              active={draft.availableWithinDays === days}
-              onPress={() => setDraft({ ...draft, availableWithinDays: days })}
-            />
-          ))}
-        </View>
+        <SingleSelectDropdown
+          label="Available within"
+          options={availabilityOptions}
+          value={draft.availableWithinDays}
+          placeholder="Any time"
+          onChange={(value) => setDraft({ ...draft, availableWithinDays: value })}
+        />
         <View style={styles.switchRow}>
           <Text style={styles.switchLabel}>Flexible dates</Text>
           <Switch
@@ -284,18 +414,13 @@ export const SearchFiltersScreen = ({ navigation, route }: any) => {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Amenities</Text>
-        <View style={styles.amenitiesGrid}>
-          {amenityOptions.map((amenity) => (
-            <FilterChip
-              key={amenity.value}
-              label={amenity.label}
-              active={draft.amenities.includes(amenity.value)}
-              onPress={() =>
-                setDraft({ ...draft, amenities: toggleValue(draft.amenities, amenity.value) })
-              }
-            />
-          ))}
-        </View>
+        <MultiSelectDropdown
+          label="Amenities"
+          options={amenityOptions}
+          values={draft.amenities}
+          placeholder="Any"
+          onChange={(values) => setDraft({ ...draft, amenities: values })}
+        />
       </View>
 
       <View style={styles.footer}>
@@ -349,41 +474,44 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     color: colors.text,
   },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: colors.white,
-  },
-  chipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  chipText: {
+  helperText: {
+    marginTop: 8,
     fontSize: 12,
     color: colors.textSecondary,
-    textTransform: 'capitalize',
   },
-  chipTextActive: {
-    color: colors.white,
-    fontWeight: '600',
+  dropdownField: {
+    marginTop: 12,
   },
-  drawButton: {
-    marginTop: 10,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: 12,
-    padding: 10,
+  dropdownButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: colors.white,
+  },
+  dropdownValue: {
+    fontSize: 13,
+    color: colors.text,
+    fontWeight: '600',
+  },
+  dropdownPlaceholder: {
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  drawButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
   },
   drawButtonActive: {
     backgroundColor: colors.primary,
@@ -391,6 +519,7 @@ const styles = StyleSheet.create({
   drawButtonText: {
     color: colors.primary,
     fontWeight: '600',
+    fontSize: 13,
   },
   drawButtonTextActive: {
     color: colors.white,
@@ -402,41 +531,92 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   switchLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.text,
-  },
-  amenitiesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    fontWeight: '600',
   },
   footer: {
     flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'space-between',
     padding: 16,
     paddingBottom: 28,
   },
   clearButton: {
-    flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
     paddingVertical: 12,
-    alignItems: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: colors.white,
   },
   clearText: {
     color: colors.textSecondary,
     fontWeight: '600',
   },
   applyButton: {
-    flex: 1,
-    backgroundColor: colors.primary,
     borderRadius: 12,
     paddingVertical: 12,
-    alignItems: 'center',
+    paddingHorizontal: 24,
+    backgroundColor: colors.primary,
   },
   applyText: {
     color: colors.white,
     fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: colors.white,
+    borderRadius: 16,
+    paddingVertical: 12,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  modalList: {
+    maxHeight: 360,
+  },
+  modalListContent: {
+    paddingBottom: 4,
+  },
+  modalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  modalItemActive: {
+    backgroundColor: colors.primary + '12',
+  },
+  modalItemText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  modalItemTextActive: {
+    color: colors.text,
+    fontWeight: '600',
+  },
+  modalDoneButton: {
+    marginTop: 8,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  modalDoneText: {
+    color: colors.white,
+    fontWeight: '700',
   },
 });

@@ -18,14 +18,32 @@ export const buildSearchSummary = (filters: SearchFilters) => {
   return parts.length ? parts.join(' · ') : 'All properties';
 };
 
+const normalizeText = (value?: string | null) => (value ?? '').trim().toLowerCase();
+
+const matchesText = (value: string | undefined, query: string) =>
+  normalizeText(value).includes(normalizeText(query));
+
 export const matchesFilters = (property: PropertyListing, filters: SearchFilters) => {
-  if (filters.city && property.city.toLowerCase() !== filters.city.toLowerCase()) return false;
+  const cityQuery = normalizeText(filters.city);
   if (
-    filters.neighborhood &&
-    property.neighborhood.toLowerCase() !== filters.neighborhood.toLowerCase()
+    cityQuery &&
+    ![property.city, property.neighborhood, property.address].some((value) =>
+      matchesText(value, cityQuery)
+    )
   ) {
     return false;
   }
+
+  const neighborhoodQuery = normalizeText(filters.neighborhood);
+  if (
+    neighborhoodQuery &&
+    ![property.neighborhood, property.city, property.address].some((value) =>
+      matchesText(value, neighborhoodQuery)
+    )
+  ) {
+    return false;
+  }
+
   if (filters.priceMin && property.price < Number(filters.priceMin)) return false;
   if (filters.priceMax && property.price > Number(filters.priceMax)) return false;
   if (filters.bedrooms.length) {

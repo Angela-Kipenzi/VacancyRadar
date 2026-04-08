@@ -21,7 +21,7 @@ const providers = ['M-Pesa', 'Airtel Money', 'MTN MoMo'];
 
 export const AddPaymentMethodScreen = ({ navigation }: any) => {
   const { addMethod } = usePayments();
-  const [type, setType] = useState<PaymentMethodType>('card');
+  const [type, setType] = useState<PaymentMethodType>('mobile_money');
   const [makeDefault, setMakeDefault] = useState(true);
 
   const [cardNumber, setCardNumber] = useState('');

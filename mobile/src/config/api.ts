@@ -1,13 +1,30 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosError, AxiosResponse } from 'axios';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 // Declare __DEV__ global variable
 declare const __DEV__: boolean;
 
+const getDevBaseUrl = () => {
+  const expoConfig = (Constants.expoConfig ?? (Constants as any).manifest) as {
+    hostUri?: string;
+  } | null;
+  const hostUri = expoConfig?.hostUri;
+  const host = hostUri ? hostUri.split(':')[0] : null;
+  if (host) {
+    return `http://${host}:5000/api`;
+  }
+  if (Platform.OS === 'android') {
+    return 'http://10.0.2.2:5000/api';
+  }
+  return 'http://localhost:5000/api';
+};
+
 // Configure your API base URL
-export const API_BASE_URL = __DEV__ 
-  ? 'http://10.13.1.108:5000/api'  // Development
-  : 'https://production-api.com/api';  // Production
+export const API_BASE_URL = __DEV__
+  ? (process.env.EXPO_PUBLIC_API_URL ?? getDevBaseUrl())
+  : 'https://production-api.com/api';
 
 // Create axios instance
 const api: AxiosInstance = axios.create({
@@ -53,9 +70,17 @@ export const endpoints = {
   login: '/auth/login',
   register: '/auth/register',
   profile: '/auth/me',
+
+  //listings
+  listings: '/listings',           // Get all available listings
+  propertyDetails: (id: string) => `/listings/${id}`,
+  vacantUnits: '/units/vacant',    // Get vacant units only
+  searchListings: '/listings/search',
   
   // Tenant
   myLease: '/tenants/me/lease',
+  signLease: '/tenants/me/lease/sign',
+  tenantLeaseAgreement: '/tenants/me/lease/agreement',
   myUnit: '/tenants/me/unit',
   
   // Payments
@@ -68,6 +93,7 @@ export const endpoints = {
   
   // Notifications
   notifications: '/notifications',
+  tenantNotifications: '/tenant-notifications',
   markRead: (id: string) => `/notifications/${id}/read`,
   
   // Documents

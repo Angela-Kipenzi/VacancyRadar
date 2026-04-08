@@ -18,7 +18,7 @@ import { scheduleReviewPrompt } from '../../services/notifications';
 
 const rooms = ['Living Room', 'Kitchen', 'Bedroom', 'Bathroom', 'Balcony'];
 
-export const CheckOutScreen = () => {
+export const CheckOutScreen = ({ navigation }: any) => {
   const {
     checkOut,
     setCheckOutField,
@@ -28,6 +28,35 @@ export const CheckOutScreen = () => {
     syncCheckOut,
     leaseInfo,
   } = useTenancy();
+
+  const getOptionalLastKnownCoords = async () => {
+    try {
+      const current = await Location.getForegroundPermissionsAsync();
+      let status = current.status;
+
+      if (status !== 'granted' && current.canAskAgain) {
+        const requested = await Location.requestForegroundPermissionsAsync();
+        status = requested.status;
+      }
+
+      if (status !== 'granted') {
+        return undefined;
+      }
+
+      const lastLocation = await Location.getLastKnownPositionAsync({});
+      if (!lastLocation) {
+        return undefined;
+      }
+
+      return {
+        lat: lastLocation.coords.latitude,
+        lng: lastLocation.coords.longitude,
+      };
+    } catch (error) {
+      console.error('Unable to read last known location:', error);
+      return undefined;
+    }
+  };
 
   const handleInitiate = () => {
     const leaseEnd = new Date(leaseInfo.endDate);
@@ -51,10 +80,7 @@ export const CheckOutScreen = () => {
     });
     if (!result.canceled) {
       const photo = result.assets[0];
-      const lastLocation = await Location.getLastKnownPositionAsync({});
-      const coords = lastLocation
-        ? { lat: lastLocation.coords.latitude, lng: lastLocation.coords.longitude }
-        : undefined;
+      const coords = await getOptionalLastKnownCoords();
       addCheckOutPhoto(room, photo.uri, coords);
     }
   };
@@ -105,7 +131,10 @@ export const CheckOutScreen = () => {
             {checkOut.inspectionCompleted ? 'Inspection Complete' : 'Mark Inspection Complete'}
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.compareButton}>
+        <TouchableOpacity 
+          style={styles.compareButton} 
+          onPress={() => navigation.navigate('PhotoComparison')}
+        >
           <Ionicons name="git-compare-outline" size={16} color={colors.primary} />
           <Text style={styles.compareText}>Compare with move-in photos</Text>
         </TouchableOpacity>

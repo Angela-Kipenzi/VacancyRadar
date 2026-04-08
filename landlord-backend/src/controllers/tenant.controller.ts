@@ -11,6 +11,16 @@ export const tenantValidation = [
   body('phone').trim().notEmpty().withMessage('Phone number is required'),
 ];
 
+export const updateMyProfileValidation = [
+  body('firstName').optional().trim().notEmpty().withMessage('First name is required'),
+  body('lastName').optional().trim().notEmpty().withMessage('Last name is required'),
+  body('email').optional().isEmail().withMessage('Valid email is required'),
+  body('phone').optional().trim().notEmpty().withMessage('Phone number is required'),
+  body('emergencyContactName').optional().trim(),
+  body('emergencyContactPhone').optional().trim(),
+  body('profilePhotoUrl').optional().isString(),
+];
+
 // Tenant self endpoints
 export const getMyLease = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -35,6 +45,48 @@ export const getMyLease = async (req: AuthRequest, res: Response): Promise<void>
     }
 
     const row = result.rows[0];
+
+    if (row.document_url) {
+      const existingDoc = await pool.query(
+        `SELECT id FROM tenant_documents
+         WHERE tenant_id = $1 AND type = 'lease' AND file_url = $2
+         LIMIT 1`,
+        [req.userId, row.document_url]
+      );
+
+      if (existingDoc.rows.length === 0) {
+        const title = row.property_name
+          ? `Lease Agreement: ${row.property_name} - Unit ${row.unit_number ?? ''}`.trim()
+          : 'Lease Agreement';
+        await pool.query(
+          `INSERT INTO tenant_documents (tenant_id, type, title, description, file_url)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [req.userId, 'lease', title, row.notes || null, row.document_url]
+        );
+      }
+    }
+
+    const existingNotice = await pool.query(
+      `SELECT id FROM tenant_notifications
+       WHERE tenant_id = $1 AND title = $2 AND link = $3
+       LIMIT 1`,
+      [req.userId, 'New Lease Issued', '/tenancy/lease']
+    );
+
+    if (existingNotice.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO tenant_notifications (tenant_id, type, title, message, link)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          req.userId,
+          'lease',
+          'New Lease Issued',
+          `A new lease has been issued for ${row.property_name || 'your unit'}. Please review and sign.`,
+          '/tenancy/lease',
+        ]
+      );
+    }
+
     res.json({
       id: row.id,
       unitId: row.unit_id,
@@ -46,6 +98,9 @@ export const getMyLease = async (req: AuthRequest, res: Response): Promise<void>
       leaseType: row.lease_type,
       status: row.status,
       documentUrl: row.document_url,
+      signedDate: row.signed_date,
+      notes: row.notes,
+      agreementData: row.agreement_data || {},
       unit: {
         id: row.unit_id,
         unitNumber: row.unit_number,
@@ -69,6 +124,151 @@ export const getMyLease = async (req: AuthRequest, res: Response): Promise<void>
   } catch (error) {
     console.error('Get tenant lease error:', error);
     res.status(500).json({ error: 'Failed to fetch tenant lease' });
+  }
+};
+
+export const signMyLease = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const leaseResult = await client.query(
+      `SELECT id, unit_id, start_date, status, rent_amount, deposit_amount
+       FROM leases
+       WHERE tenant_id = $1
+       ORDER BY start_date DESC
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    if (leaseResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Lease not found' });
+      return;
+    }
+
+    const lease = leaseResult.rows[0];
+
+    if (lease.status === 'active') {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'Lease is already signed' });
+      return;
+    }
+
+    const updateResult = await client.query(
+      `UPDATE leases SET
+        status = 'active',
+        signed_date = CURRENT_TIMESTAMP
+       WHERE id = $1 AND tenant_id = $2
+       RETURNING *`,
+      [lease.id, req.userId]
+    );
+
+    await client.query(
+      'UPDATE units SET status = $1 WHERE id = $2',
+      ['occupied', lease.unit_id]
+    );
+
+    await client.query(
+      `UPDATE tenants SET
+        status = 'active',
+        move_in_date = COALESCE(move_in_date, $1)
+       WHERE id = $2`,
+      [lease.start_date, req.userId]
+    );
+
+    const rentAmount = parseFloat(lease.rent_amount) || 0;
+    const depositAmount = parseFloat(lease.deposit_amount) || 0;
+
+    if (depositAmount > 0) {
+      await client.query(
+        `INSERT INTO payments (tenant_id, lease_id, payment_type, amount, due_date, status, currency)
+         VALUES ($1, $2, 'deposit', $3, $4, 'pending', 'KES')`,
+        [req.userId, lease.id, depositAmount, lease.start_date]
+      );
+    }
+
+    if (rentAmount > 0) {
+      await client.query(
+        `INSERT INTO payments (tenant_id, lease_id, payment_type, amount, due_date, status, currency)
+         VALUES ($1, $2, 'rent', $3, $4, 'pending', 'KES')`,
+        [req.userId, lease.id, rentAmount, lease.start_date]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const signed = updateResult.rows[0];
+    res.json({
+      message: 'Lease signed successfully',
+      lease: {
+        id: signed.id,
+        status: signed.status,
+        signedDate: signed.signed_date,
+      },
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Sign lease error:', error);
+    res.status(500).json({ error: 'Failed to sign lease' });
+  } finally {
+    client.release();
+  }
+};
+
+export const updateMyLeaseAgreement = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const allowedKeys = [
+      'tenant',
+      'occupants',
+      'authorizedPersons',
+      'pets',
+      'cosigner',
+      'additionalTerms',
+    ];
+
+    const updates: Record<string, unknown> = {};
+    allowedKeys.forEach((key) => {
+      if (key in req.body) {
+        updates[key] = req.body[key];
+      }
+    });
+
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ error: 'No valid agreement fields provided' });
+      return;
+    }
+
+    const leaseResult = await pool.query(
+      `SELECT id, agreement_data
+       FROM leases
+       WHERE tenant_id = $1
+       ORDER BY start_date DESC
+       LIMIT 1`,
+      [req.userId]
+    );
+
+    if (leaseResult.rows.length === 0) {
+      res.status(404).json({ error: 'Lease not found' });
+      return;
+    }
+
+    const lease = leaseResult.rows[0];
+    const current = lease.agreement_data || {};
+    const merged = { ...current, ...updates };
+
+    const updated = await pool.query(
+      `UPDATE leases SET
+        agreement_data = $1
+       WHERE id = $2
+       RETURNING agreement_data`,
+      [merged, lease.id]
+    );
+
+    res.json({ agreementData: updated.rows[0]?.agreement_data || merged });
+  } catch (error) {
+    console.error('Update tenant lease agreement error:', error);
+    res.status(500).json({ error: 'Failed to update lease agreement' });
   }
 };
 
@@ -115,6 +315,80 @@ export const getMyUnit = async (req: AuthRequest, res: Response): Promise<void> 
   } catch (error) {
     console.error('Get tenant unit error:', error);
     res.status(500).json({ error: 'Failed to fetch tenant unit' });
+  }
+};
+
+export const updateMyProfile = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      emergencyContactName,
+      emergencyContactPhone,
+      profilePhotoUrl,
+    } = req.body;
+
+    if (email) {
+      const emailCheck = await pool.query(
+        'SELECT id FROM tenants WHERE email = $1 AND id <> $2',
+        [email, req.userId]
+      );
+      if (emailCheck.rows.length > 0) {
+        res.status(400).json({ error: 'Email already in use' });
+        return;
+      }
+    }
+
+    const result = await pool.query(
+      `UPDATE tenants SET
+        first_name = COALESCE($1, first_name),
+        last_name = COALESCE($2, last_name),
+        email = COALESCE($3, email),
+        phone = COALESCE($4, phone),
+        emergency_contact_name = COALESCE($5, emergency_contact_name),
+        emergency_contact_phone = COALESCE($6, emergency_contact_phone),
+        profile_photo_url = COALESCE($7, profile_photo_url),
+        updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8
+       RETURNING *`,
+      [
+        firstName,
+        lastName,
+        email,
+        phone,
+        emergencyContactName || null,
+        emergencyContactPhone || null,
+        profilePhotoUrl || null,
+        req.userId,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Tenant not found' });
+      return;
+    }
+
+    const tenant = result.rows[0];
+    res.json({
+      message: 'Profile updated successfully',
+      tenant: {
+        id: tenant.id,
+        firstName: tenant.first_name,
+        lastName: tenant.last_name,
+        email: tenant.email,
+        phone: tenant.phone,
+        emergencyContactName: tenant.emergency_contact_name,
+        emergencyContactPhone: tenant.emergency_contact_phone,
+        profilePhotoUrl: tenant.profile_photo_url,
+        status: tenant.status,
+        updatedAt: tenant.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error('Update tenant profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 };
 

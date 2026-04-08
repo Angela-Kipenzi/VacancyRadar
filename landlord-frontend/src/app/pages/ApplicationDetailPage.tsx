@@ -15,6 +15,7 @@ export default function ApplicationDetailPage() {
   const { applications, units, properties, updateApplication } = useApp();
   const [note, setNote] = useState('');
   const [notes, setNotes] = useState<string[]>([]);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
   const application = applications.find(a => a.id === id);
   const unit = application ? units.find(u => u.id === application.unitId) : null;
@@ -31,14 +32,26 @@ export default function ApplicationDetailPage() {
     );
   }
 
-  const handleApprove = () => {
-    updateApplication(application.id, { status: 'approved' });
-    toast.success('Application approved');
+  const handleApprove = async () => {
+    setIsUpdatingStatus(true);
+    const result = await updateApplication(application.id, { status: 'approved' });
+    if (result.ok) {
+      toast.success('Application approved');
+    } else {
+      toast.error(result.message || 'Unable to approve application. Please try again.');
+    }
+    setIsUpdatingStatus(false);
   };
 
-  const handleReject = () => {
-    updateApplication(application.id, { status: 'rejected' });
-    toast.success('Application rejected');
+  const handleReject = async () => {
+    setIsUpdatingStatus(true);
+    const result = await updateApplication(application.id, { status: 'rejected' });
+    if (result.ok) {
+      toast.success('Application rejected');
+    } else {
+      toast.error(result.message || 'Unable to reject application. Please try again.');
+    }
+    setIsUpdatingStatus(false);
   };
 
   const handleAddNote = () => {
@@ -85,11 +98,11 @@ export default function ApplicationDetailPage() {
             <div className="flex items-center justify-between">
               <p className="text-sm text-yellow-800">New application waiting for review</p>
               <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={handleReject}>
+                <Button size="sm" variant="outline" onClick={handleReject} disabled={isUpdatingStatus}>
                   <XCircle className="size-4 mr-2" />
                   Reject
                 </Button>
-                <Button size="sm" onClick={handleApprove}>
+                <Button size="sm" onClick={handleApprove} disabled={isUpdatingStatus}>
                   <CheckCircle className="size-4 mr-2" />
                   Approve
                 </Button>

@@ -57,3 +57,4 @@ export const generateToken = (userId: string, email: string, role: UserRole): st
     { expiresIn: config.jwt.expiresIn } as jwt.SignOptions
   );
 };
+

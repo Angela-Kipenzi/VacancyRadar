@@ -20,10 +20,12 @@ import { tenancyApi, TenancyOverviewResponse } from '../services/tenancyApi';
 const STORAGE_KEY = 'tenancy_state';
 
 const defaultChecklist: ChecklistItem[] = [
-  { id: 'item-bring', label: 'Items to bring', completed: false },
-  { id: 'utilities', label: 'Utilities to arrange', completed: false },
-  { id: 'docs', label: 'Documents needed', completed: false },
-  { id: 'contacts', label: 'Contact information', completed: false },
+  { id: 'keys-verify', label: 'Verify all keys and locks', completed: false },
+  { id: 'utilities-setup', label: 'Setup utilities (Water, Electricity)', completed: false },
+  { id: 'insurance-arrange', label: 'Arrange renter insurance', completed: false },
+  { id: 'emergency-verify', label: 'Verify emergency exits and alarms', completed: false },
+  { id: 'appliances-test', label: 'Test all major appliances', completed: false },
+  { id: 'fixtures-inspect', label: 'Inspect light fixtures and plumbing', completed: false },
 ];
 
 const defaultCheckIn: CheckInStatus = {
@@ -97,7 +99,7 @@ interface TenancyContextValue extends TenancyState {
   toggleChecklistItem: (id: string) => void;
   setReminderEnabled: (value: boolean) => void;
   toggleMoveInReminder: (value: boolean) => Promise<void>;
-  scheduleRenewal: () => Promise<void>;
+  scheduleRenewal: (customDays?: number[]) => Promise<void>;
   setLeasePreviewed: (value: boolean) => void;
   setCheckInField: (updates: Partial<CheckInStatus>) => void;
   addCheckInPhoto: (room: string, uri?: string, location?: GeoPoint) => void;
@@ -133,6 +135,13 @@ const createPhotoNote = (room: string, uri?: string, location?: GeoPoint): Photo
   timestamp: new Date().toISOString(),
 });
 
+const normalizeChecklist = (checklist?: ChecklistItem[] | null): ChecklistItem[] => {
+  if (Array.isArray(checklist) && checklist.length > 0) {
+    return checklist;
+  }
+  return defaultChecklist;
+};
+
 export const TenancyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<TenancyState>(defaultState);
 
@@ -140,7 +149,10 @@ export const TenancyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     AsyncStorage.getItem(STORAGE_KEY)
       .then((value) => {
         const stored = safeParse<TenancyState>(value, defaultState);
-        setState(stored);
+        setState({
+          ...stored,
+          checklist: normalizeChecklist(stored.checklist),
+        });
       })
       .catch(() => undefined);
   }, []);
@@ -150,10 +162,15 @@ export const TenancyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [state]);
 
   const mergeRemoteState = (remote: TenancyOverviewResponse) => {
+    const remoteChecklist = Array.isArray(remote.checklist) ? remote.checklist : undefined;
+
     setState((prev) => ({
       ...prev,
       ...remote,
-      checklist: remote.checklist ?? prev.checklist,
+      checklist:
+        remoteChecklist && remoteChecklist.length > 0
+          ? remoteChecklist
+          : normalizeChecklist(prev.checklist),
       checkIn: { ...prev.checkIn, ...remote.checkIn },
       checkOut: { ...prev.checkOut, ...remote.checkOut },
       deposit: { ...prev.deposit, ...remote.deposit },
@@ -201,12 +218,17 @@ export const TenancyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const scheduleRenewal = async () => {
+  const scheduleRenewal = async (customDays?: number[]) => {
     if (state.renewalReminderIds.length) {
       await cancelNotifications(state.renewalReminderIds);
     }
-    const ids = await scheduleRenewalReminders(state.leaseInfo.endDate, state.leaseInfo.renewalReminderDays);
-    setState((prev) => ({ ...prev, renewalReminderIds: ids }));
+    const days = customDays || state.leaseInfo.renewalReminderDays;
+    const ids = await scheduleRenewalReminders(state.leaseInfo.endDate, days);
+    setState((prev) => ({
+      ...prev,
+      renewalReminderIds: ids,
+      leaseInfo: { ...prev.leaseInfo, renewalReminderDays: days },
+    }));
   };
 
   const setLeasePreviewed = (value: boolean) => {
@@ -292,7 +314,11 @@ export const TenancyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const syncCheckIn = async (updates?: Partial<CheckInStatus>) => {
     const payload = updates ? { ...state.checkIn, ...updates } : state.checkIn;
-    await tenancyApi.updateCheckIn(payload);
+    const response = await tenancyApi.updateCheckIn(payload);
+    
+    if (response?.welcomeInfo) {
+      setCheckInField({ ...updates, welcomeInfo: response.welcomeInfo });
+    }
   };
 
   const syncCheckOut = async (updates?: Partial<CheckOutStatus>) => {

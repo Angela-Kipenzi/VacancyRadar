@@ -37,8 +37,11 @@ export const PaymentHistoryScreen = () => {
                       {txn.currency} {txn.amount.toFixed(2)}
                     </Text>
                     <Text style={styles.meta}>
-                      {txn.description} · {format(new Date(txn.createdAt), 'MMM dd, yyyy')}
+                      {txn.description} - {format(new Date(txn.createdAt), 'MMM dd, yyyy')}
                     </Text>
+                    {txn.mpesaReceipt ? (
+                      <Text style={styles.meta}>Receipt: {txn.mpesaReceipt}</Text>
+                    ) : null}
                     <Text style={styles.meta}>{method?.label ?? 'Manual payment'}</Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: statusColor(txn.status) + '22' }]}>
