@@ -1,0 +1,141 @@
+name: Tenant Mobile App Build
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'mobile/**'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Permissions
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # JOB 1: Build Android APK
+  build-android:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./mobile
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: './mobile/package-lock.json'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'microsoft'
+      
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      
+      - name: Create .env file
+        run: |
+          echo "EXPO_PUBLIC_API_URL=${{ secrets.EXPO_PUBLIC_API_URL }}" >> .env
+          echo "EXPO_PUBLIC_MAPTILER_KEY=${{ secrets.EXPO_PUBLIC_MAPTILER_KEY }}" >> .env
+      
+      - name: Prebuild native files
+        run: npx expo prebuild --clean --platform android
+      
+      - name: Build Android APK
+        run: eas build --platform android --profile preview --local --output ./app-build.apk
+      
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenant-app-android
+          path: ./mobile/app-build.apk
+          retention-days: 30
+      
+      - name: Upload to release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Release v1.0.${{ github.run_number }}
+          files: ./mobile/app-build.apk
+          generate_release_notes: true
+
+  # JOB 2: Lint and Type Check
+  check-code:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./mobile
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Type check TypeScript
+        run: npx tsc --noEmit
+        continue-on-error: true
+      
+      - name: Lint code
+        run: npm run lint
+        continue-on-error: true
+
+  # JOB 3: Build iOS (requires macOS runner - paid)
+  build-ios:
+    runs-on: macos-latest  # Requires paid GitHub plan
+    if: false  # Disable if you don't have macOS runner
+    defaults:
+      run:
+        working-directory: ./mobile
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm ci
+      
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      
+      - name: Build iOS
+        run: eas build --platform ios --profile preview --local --output ./app-build.ipa
+      
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenant-app-ios
+          path: ./mobile/app-build.ipa

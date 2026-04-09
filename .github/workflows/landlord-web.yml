@@ -1,0 +1,92 @@
+name: Landlord Web Dashboard CI/CD
+
+# When this workflow runs
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'landlord-web/**'  # Only trigger when web app changes
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+# Permissions (limit for security)
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # JOB 1: Build and Test
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    # Set working directory to web app folder
+    defaults:
+      run:
+        working-directory: ./landlord-web
+    
+    steps:
+      # Step 1: Download your code from GitHub
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      # Step 2: Install Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: './landlord-web/package-lock.json'
+      
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: npm ci
+      
+      # Step 4: Run linting (optional)
+      - name: Run linting
+        run: npm run lint
+        continue-on-error: true  # Don't fail the build if lint fails
+      
+      # Step 5: Run type checking
+      - name: Type checking
+        run: npm run type-check
+        continue-on-error: true
+      
+      # Step 6: Build the app
+      - name: Build the app
+        run: npm run build
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+      
+      # Step 7: Save the build as an artifact
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: landlord-web-build
+          path: ./landlord-web/dist/
+          retention-days: 7
+
+  # JOB 2: Deploy to Vercel 
+  deploy-vercel:
+    needs: build-and-test  # Only runs if build job succeeds
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'  # Only deploy from main branch
+    
+    defaults:
+      run:
+        working-directory: ./landlord-web
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Vercel CLI
+        run: npm install --global vercel
+      
+      - name: Deploy to Vercel
+        run: vercel --prod --token ${{ secrets.VERCEL_TOKEN }} --yes
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  
