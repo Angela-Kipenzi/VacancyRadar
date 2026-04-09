@@ -106,7 +106,7 @@ export default function RegisterPage() {
               <Input
                 id="password"
                 type="password"
-                placeholder="••••••••"
+                placeholder="********"
                 value={formData.password}
                 onChange={(e) => handleChange('password', e.target.value)}
                 required
@@ -117,7 +117,7 @@ export default function RegisterPage() {
               <Input
                 id="confirmPassword"
                 type="password"
-                placeholder="••••••••"
+                placeholder="********"
                 value={formData.confirmPassword}
                 onChange={(e) => handleChange('confirmPassword', e.target.value)}
                 required
@@ -138,3 +138,4 @@ export default function RegisterPage() {
     </div>
   );
 }
+

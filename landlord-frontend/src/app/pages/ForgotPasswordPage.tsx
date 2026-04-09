@@ -40,6 +40,9 @@ export default function ForgotPasswordPage() {
               : 'Enter your email to receive password reset instructions'
             }
           </CardDescription>
+          <Link to="/" className="text-sm text-indigo-600 hover:underline">
+            Back to home
+          </Link>
         </CardHeader>
         <CardContent>
           {!submitted ? (

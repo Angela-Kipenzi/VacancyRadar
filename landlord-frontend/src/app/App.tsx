@@ -7,6 +7,7 @@ import { Toaster } from './components/ui/sonner';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import LandingPage from './pages/LandingPage';
 
 // Dashboard Layout
 import DashboardLayout from './layouts/DashboardLayout';
@@ -55,6 +56,11 @@ function AppContent() {
     <BrowserRouter>
       <Routes>
         {/* Public Routes */}
+        <Route path="/" element={
+          <PublicRoute>
+            <LandingPage />
+          </PublicRoute>
+        } />
         <Route path="/login" element={
           <PublicRoute>
             <LoginPage />
@@ -114,9 +120,8 @@ function AppContent() {
           <Route path="settings" element={<SettingsPage />} />
         </Route>
 
-        {/* Default redirect */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       <Toaster />
     </BrowserRouter>
