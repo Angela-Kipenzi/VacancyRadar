@@ -35,6 +35,16 @@ const api: AxiosInstance = axios.create({
   },
 });
 
+let unauthorizedHandler: (() => void) | null = null;
+
+export const clearStoredSession = async () => {
+  await AsyncStorage.multiRemove(['auth_token', 'user_data']);
+};
+
+export const setUnauthorizedHandler = (handler: (() => void) | null) => {
+  unauthorizedHandler = handler;
+};
+
 // Request interceptor to add auth token
 api.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
@@ -54,9 +64,8 @@ api.interceptors.response.use(
   (response: AxiosResponse) => response,
   async (error: AxiosError) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid, clear storage
-      await AsyncStorage.removeItem('auth_token');
-      await AsyncStorage.removeItem('user_data');
+      await clearStoredSession();
+      unauthorizedHandler?.();
     }
     return Promise.reject(error);
   }

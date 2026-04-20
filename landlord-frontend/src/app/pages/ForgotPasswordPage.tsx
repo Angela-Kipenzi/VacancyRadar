@@ -40,9 +40,6 @@ export default function ForgotPasswordPage() {
               : 'Enter your email to receive password reset instructions'
             }
           </CardDescription>
-          <Link to="/" className="text-sm text-indigo-600 hover:underline">
-            Back to home
-          </Link>
         </CardHeader>
         <CardContent>
           {!submitted ? (
@@ -61,12 +58,6 @@ export default function ForgotPasswordPage() {
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? 'Sending...' : 'Send Reset Instructions'}
               </Button>
-              <Link to="/login">
-                <Button variant="ghost" className="w-full">
-                  <ArrowLeft className="size-4 mr-2" />
-                  Back to Login
-                </Button>
-              </Link>
             </form>
           ) : (
             <div className="text-center space-y-4">

@@ -1,0 +1,26 @@
+{
+  "[java]": {
+    "editor.defaultFormatter": "redhat.java"
+  },
+  "java.import.gradle.enabled": false,
+  "java.configuration.updateBuildConfiguration": "never",
+  "java.project.sourceExclusions": [
+    "node_modules",
+    "android/**"
+  ],
+  "java.project.referencedLibraries": [],
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/android": true,
+    "**/.gradle": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/android": true,
+    "**/.gradle": true
+  },
+  "problems.exclude": {
+    "**/node_modules/**": true,
+    "**/android/**": true
+  }
+}

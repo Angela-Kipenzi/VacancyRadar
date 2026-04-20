@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import api from '../config/api';
+import api, { clearStoredSession, setUnauthorizedHandler } from '../config/api';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -30,13 +30,51 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     loadUser();
   }, []);
 
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      setLoading(false);
+    });
+
+    return () => {
+      setUnauthorizedHandler(null);
+    };
+  }, []);
+
+  const clearSession = async () => {
+    await clearStoredSession();
+    setUser(null);
+  };
+
   const loadUser = async () => {
     try {
       const token = await AsyncStorage.getItem('auth_token');
       const userData = await AsyncStorage.getItem('user_data');
-      
-      if (token && userData) {
-        setUser(JSON.parse(userData));
+
+      if (!token) {
+        if (userData) {
+          await AsyncStorage.removeItem('user_data');
+        }
+        setUser(null);
+        return;
+      }
+
+      try {
+        const response = await api.get('/auth/me');
+        const nextUser = response.data as User;
+        await AsyncStorage.setItem('user_data', JSON.stringify(nextUser));
+        setUser(nextUser);
+      } catch (error: any) {
+        if (error.response?.status === 401) {
+          await clearSession();
+          return;
+        }
+
+        if (userData) {
+          setUser(JSON.parse(userData));
+        } else {
+          setUser(null);
+        }
       }
     } catch (error) {
       console.error('Error loading user:', error);
@@ -75,9 +113,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = async () => {
     try {
-      await AsyncStorage.removeItem('auth_token');
-      await AsyncStorage.removeItem('user_data');
-      setUser(null);
+      await clearSession();
     } catch (error) {
       console.error('Error logging out:', error);
     }

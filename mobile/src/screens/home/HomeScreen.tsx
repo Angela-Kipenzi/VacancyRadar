@@ -31,7 +31,7 @@ export const HomeScreen = ({ navigation }: any) => {
     setLoading(true);
     try {
       // Load tenant's lease info
-      // Note: These are placeholder endpoints - adjust based on your actual API
+      
       const [leaseRes, paymentRes, requestsRes] = await Promise.all([
         api.get('/tenants/me/lease').catch(() => ({ data: null })),
         api.get('/payments/next').catch(() => ({ data: null })),

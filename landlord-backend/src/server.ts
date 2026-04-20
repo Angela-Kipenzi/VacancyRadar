@@ -27,27 +27,63 @@ import uploadRoutes from './routes/upload.routes.js';
 
 const app: Express = express();
 
-// Middleware
+// Allowed origins for CORS
+const allowedOrigins = [
+  'https://vacancy-radar.vercel.app',
+  'https://vacancy-radar.vercel.app/',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000',
+  ...config.corsOrigins
+];
+
+// CORS Middleware
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || config.corsOrigins.includes(origin)) {
-      callback(null, true);
-      return;
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin) {
+      return callback(null, true);
     }
-
-    callback(new Error(`CORS origin not allowed: ${origin}`));
+    
+    // Check if origin is allowed
+    if (allowedOrigins.includes(origin)) {
+      console.log(`CORS allowed: ${origin}`);
+      callback(null, true);
+    } else {
+      console.log(`CORS blocked: ${origin}`);
+      console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+      callback(new Error(`CORS policy blocked request from ${origin}`));
+    }
   },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  maxAge: 86400
 }));
+
+// Handle preflight requests explicitly
+app.options('*', (req: Request, res: Response) => {
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400');
+  }
+  res.status(204).send();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Static uploads
 app.use('/uploads', express.static(path.resolve(config.upload.directory)));
 
-// Request logging
+// Request logging with origin
 app.use((req: Request, _res: Response, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Origin: ${req.headers.origin || 'no origin'}`);
   next();
 });
 
